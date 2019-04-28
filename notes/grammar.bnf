@@ -1,0 +1,121 @@
+
+Program ::= ( StatementOrPreprocessor [ ";" ] * ) *
+
+StatementOrPreprocessor ::= Statement | Preprocessor
+
+Preprocessor ::= "#" "include" Identifier | "#" "import" Identifier
+
+StatementList ::= "{" ( Statement [ ";" ] ) * "}"
+
+Statement ::= VarDeclaration
+  | TypeDeclaration
+  | FnDeclaration
+  | ExternFnDeclaration
+  | Expression
+  | ComptimeForLoop
+  | ForLoop
+  | Assignment
+
+Expression ::= "(" Expression ")"
+  | StatementList
+  | Comptime
+  | Literal
+  | Identifier
+  | QualifiedName
+  | QualifiedType
+  | UnaryOp Expression
+  | FunctionCall
+  | MakeExpression
+  | "undefined"
+  | MetaTypeIdent
+  | FnType
+  | ComptimeIf
+  | If
+  | UnaryOp Expression
+  | Lambda
+  // This is double-used - when specifying an array type (i.e. int[3]) AND
+  // accessing (i.e. foo[3])
+  | ArrayAccess
+  | SliceType
+  | Range
+
+VarDeclaration ::= [ "export" ] [ "comptime" ] "var" Identifier [ ":" Expression ] "=" Expression
+  | [ "comptime" ] "mut" Identifier [ ":" Expression ] "=" Expression
+  
+FnDeclaration ::=
+  [ "export" ] "fn" Identifier [ TemplateParameterDeclList ] "=" FnSignature Expression
+
+ExternFnDeclaration ::=
+  "extern" "fn" Identifier "=" FnSignature
+
+FnSignature ::= ParameterDeclList [ "mut" ] [ "->" Expression ]
+
+FnType ::= "fn" FnSignature
+
+TypeDeclaration ::= [ "export" ] type Identifier "=" TypeDefinition
+
+TypeDefinition ::= Expression
+  | Comptime
+  | StructDefinition
+  | EnumDefinition
+
+EnumDefinition ::= "enum" "{" ( EnumField [ "," ] ) * "}"
+
+EnumField ::= Identifier [ "(" Expression ")" ]
+
+// comma only optional for last field
+StructDefinition ::= "struct" "{" ( StructField [ "," ] ) * "}"
+
+StructField ::= ["static"] MemberVarDecl | ["static"] FnDeclaration
+
+// The literal should be an integer, since it's a bitfield
+MemberVarDecl ::= Identifier ":" Expression [ "{" Literal "}" ] [ "=" Expression ]
+
+Comptime ::= "comptime" StatementList
+
+ParameterDeclList ::= "(" ( ParameterDecl [","] ) * ")"
+TemplateParameterDeclList ::= "<" ( ParameterDecl [","] ) * ">"
+ParameterDecl ::= [ "comptime" ] Identifier ":" Expression | [ "comptime" ] Expression
+ParameterList ::= "(" ( Expression [","] ) * ")"
+TemplateParameterList ::= "<" ( Expression [","] ) * ">"
+
+// TODO Solve this, should be Expression :: Ident :: Ident ... but this is left
+// recursive
+QualifiedName ::= Expression
+  | Expression "::" QualifiedName
+  | Expression "." QualifiedName
+  | Expression "." IntLit
+
+QualifiedType ::= Expression "::" TemplateParameterList
+
+MetaTypeIdent ::= "$" "type"
+  | "$" "expr"
+
+/* Actual code, rather than data definition */
+
+MakeExpression ::= "make" Expression "{" ( Expression [","] ) * "}"
+
+ComptimeForLoop ::= "comptime" ForLoop
+ComptimeIf ::= "comptime" If
+
+ForLoop ::= "for" Identifier ["," Identifier] "in" Expression Expression
+If ::= "if" Expression StatementList Elif * [ Else ]
+Elif ::= "elif" Expression StatementList
+Else ::= "else" Expression StatementList
+
+Lambda ::= "lambda" FnSignature Expression
+
+BinaryExpression ::= Expression BinaryOp Expression
+
+BinaryOp ::= Any op apart from "=", see separate Assignment nterm
+
+Assignment ::= Expression "=" Expression
+
+FunctionCall ::= Expression  ParameterList
+ArrayAccess ::= Expression "[" Expression "]"
+
+// Like ArrayAccess but empty, e.g. int[]
+SliceType ::= Expression "[" "]"
+
+// Used as a slice or as range in for loops
+Range ::= Expression ".." Expression

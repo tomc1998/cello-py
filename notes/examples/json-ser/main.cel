@@ -1,0 +1,57 @@
+type TestStruct1 = struct {
+  a: i32,
+  b: i32,
+
+}
+
+type TestStruct0 = struct {
+  a: i32 = 234,
+  b: str = "Hello",
+  c: TextStruct1 = make TextStruct1 { 2, 3 },
+  slice: i32[] = make i32[] {1, 2, 3}
+}
+
+fn serialise<T: $type> = (v: T) -> String {
+	comptime if T.is_struct() {
+    if T == String {
+      v
+    } else {
+      var ret : String = "{";
+      comptime for ii, f in T.fields {
+        ret += "\"" + f.name + "\":" + serialise(meta::get_field(v, f));
+        if ii < T.fields.size()-1 {
+          ret += ",";
+        }
+      }
+      ret + "}"
+    }
+  } elif T.is_number() {
+    String::from(v)
+  } elif T.is_slice() {
+    if T == str {
+      String::from(v)
+    } else {
+      var ret : String = "[";
+      for ii, val in v {
+        ret += serialise(val);
+        if ii < T.fields.size()-1 {
+          ret += ",";
+        }
+      }
+      ret + "]"
+    }
+  } elif T.is_array() {
+      var ret : String = "[";
+      comptime for ii, val in v {
+        ret += serialise(val);
+        if ii < T.fields.size()-1 {
+          ret += ",";
+        }
+      }
+      ret + "]"
+  } elif T.is_pointer() {
+    serialise(*v)
+  } else {
+    ""
+  }
+}

@@ -1,0 +1,101 @@
+#import glfw;
+
+type ButtonType = enum {
+  Mouse(i32),
+  Key(i32),
+};
+
+type Button = struct {
+  type: ButtonType,
+  down: bool{1} = false, // {1} for bitfield
+  just_changed: bool{1} = false,
+};
+
+type ControlState = struct {
+	mouse_x: f64 = 0.0,
+	mouse_y: f64 = 0.0,
+  move_left:  Button = make Button { ButtonType::Key(glfw::KEY_LEFT) },
+  move_right: Button = make Button { ButtonType::Key(glfw::KEY_RIGHT) },
+  move_up:    Button = make Button { ButtonType::Key(glfw::KEY_UP) },
+  move_down:  Button = make Button { ButtonType::Key(glfw::KEY_DOWN) },
+  shoot:      Button = make Button { ButtonType::Key(glfw::KEY_SPACE) },
+};
+
+fn for_all_buttons = (cstate: &ControlState, f: fn (&Button)) {
+  comptime for field in ControlState.fields {
+    comptime if field.type == Button {
+      f(meta::get_field(cstate, field))
+    }
+  }
+}
+
+type InputManager = struct {
+  cstate: ControlState = make ControlState {},
+  // Get a list of all the buttons
+  all_buttons: AllButtons = get_all_buttons(cstate),
+
+  static instance: InputManager = InputManager::new(),
+
+  static fn get = () -> &InputManager {
+    instance
+  },
+
+	static fn cursor_callback = (w: &glfw::Window, x: f64, y: f64) {
+    var iman = InputManager::get();
+		iman.cstate.mouse_x = x;
+		iman.cstate.mouse_y = y;
+	},
+
+  static fn mouse_callback = (w: &glfw::Window, button: i32, action: i32, mods: i32) {
+    var iman = InputManager::get();
+    if action == glfw::PRESS {
+      for_all_buttons(iman.cstate, lambda (b: &Button) {
+        if b.type == ButtonType::Mouse && b.type.Mouse.0 == button && !b.down {
+            b.down = true;
+            b.just_changed = true;
+        }
+      });
+    } elif action == glfw::RELEASE {
+      for_all_buttons(iman.cstate, lambda (b: &Button) {
+        if b.type == ButtonType::Mouse && b.type.Mouse.0 == button && b.down {
+            b.down = false;
+            b.just_changed = true;
+        }
+      });
+    }
+  },
+
+  static fn key_callback = (w: &glfw::Window, key: i32, scancode: i32, action: i32, mods: i32) {
+    var iman = InputManager::get();
+    if action == glfw::PRESS {
+      for_all_buttons(iman.cstate, lambda (b: &Button) {
+        if b.type == ButtonType::Key && b.type.Key.0 == key && !b.down {
+            b.down = true;
+            b.just_changed = true;
+        }
+      });
+    } elif action == glfw::RELEASE {
+      for_all_buttons(iman.cstate, lambda (b: &Button) {
+        if b.type == ButtonType::Key && b.type.Key.0 == key && b.down {
+            b.down = false;
+            b.just_changed = true;
+        }
+      });
+    }
+  },
+
+  // Constructor, run after make / new
+  static fn new = () -> InputManager {
+    glfw::setKeyCallback(InputManager::key_callback);
+    glfw::setMouseCallback(InputManager::mouse_callback);
+    glfw::setCursorPosCallback(InputManager::cursor_callback);
+    make InputManager {}
+  },
+
+  fn poll = () mut {
+    for b in all_buttons {
+      b.just_changed = false;
+    }
+    glfw::pollEvents();
+  },
+}

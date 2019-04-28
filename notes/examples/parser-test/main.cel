@@ -1,0 +1,89 @@
+
+/******************/
+/* Test functions */
+/******************/
+
+fn add = (a: i32, b: i32) -> i32 {
+  a + b
+}
+
+// Generic
+fn add<T: $type> = (a: T, b: T) -> T {
+  a + b
+}
+
+
+/*************/
+/* Test vars */
+/*************/
+
+var foo0 = 3;
+var foo1 : i32 = 3;
+mut foo2 = 3;
+mut foo3 : i32 = 3;
+
+comptime var foo4 : comptime i32 = 3;
+comptime mut foo5 : comptime i32 = 3;
+
+
+/**************/
+/* Test types */
+/**************/
+
+type Foo = struct {
+  a: i32,
+  b: i32,
+  fn add = () -> i32 {
+    a + b
+  }
+}
+// Generic
+type Foo<T: $type> = struct {
+  a: T,
+  b: T,
+  fn add = () -> T {
+    a + b
+  }
+}
+
+/******************/
+/* Advanced types */
+/******************/
+
+var foo : Foo::<i32> = make Foo::<i32> {2, 3};
+var bar : meta::return_type(Foo::add) = foo.add();
+
+comptime fn num_fields = (T: $type) {
+  T.fields.len
+}
+
+// Gets a list of pointers into the given struct, one for each field
+fn field_pointer_array<T: $type> = (v: &T) -> (&u8)[num_fields(T)] {
+  T.fields.map(meta::Field::offset).map(lambda (offset: i64) -> &u8 {
+    (&u8)((i64)(v) + offset)
+  });
+}
+
+var foo_fields = field_pointer_array(foo);
+
+
+
+/********/
+/* Misc */
+/********/
+
+fn sum = (n: i64) -> i64 {
+  mut sum = 0;
+  for ii in 0..n {
+    sum += ii;
+  }
+  sum
+}
+
+fn sum_even = (n: i64) -> i64 {
+  mut sum = 0;
+  for ii in 0..n {
+    if ii % 2 == 0 { sum += ii; }
+  }
+  sum
+}
