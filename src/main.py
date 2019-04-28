@@ -10,3 +10,4 @@ for line in f: buf += line
 
 ## Pass the tokens into the parser, get a parse tree
 parse_tree = parser.parse(lexer.TokenStream(buf))
+parse_tree.print()
