@@ -54,12 +54,20 @@ class ParseNode:
     def __init__(self, tok_type, tok_val, sl):
         self.tok_type = tok_type
         self.tok_val = tok_val
-    def print(self):
-        if self.tok_type == TERM: print(self.tok_val[1], end='')
+
+    def to_string(self):
+        if self.tok_type == TERM: return self.tok_val[1]
         else:
-            print (self.tok_type + "(", end='')
-            for c in self.tok_val: c.print()
-            print(")")
+            ret = self.tok_type + "(";
+            for c in self.tok_val: ret += c.to_string()
+            ret += ")"
+            return ret
+
+    def print(self):
+        print(self.to_string())
+
+    def is_nterm(self, nterm): return self.tok_type == nterm
+    def is_term(self, val): return self.tok_type == TERM and self.tok_val[1] == val
 
 class ParseError(Exception):
     def __init__(self, l, err):
@@ -81,7 +89,6 @@ def assert_type(l, val):
     assert_not_empty(l, "Expected '" + val + "', got EOF")
     if l.peek()[0] != val:
         raise ParseError(l, "Expected token of type '" + val + "', got '" + l.peek()[1] + "'")
-
 
 def parse_preprocessor(l): raise NotImplementedError
 
@@ -193,6 +200,10 @@ def parse_expression(l, no_right_angle=False):
             lrec = parse_binary_expression(l, lrec)
         else: break
         added_lrec = True
+
+    ## If we added some more stuff on the end in the previous stage, re-wrap this
+    ## in an 'expression' nterm. Otherwise, just return as-is.
+    return ParseNode(NTERM_EXPRESSION, [lrec], l.sl()) if added_lrec else lrec
 
 
 def parse_parameter_decl(l, no_right_angle=False):
