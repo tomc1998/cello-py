@@ -7,7 +7,7 @@ def ast_assert(val, msg=""):
 ## Given an expression parse node, try to extract a type identifier (i.e.
 ## 'i32', or 'my_type_fn()' where my_type_fn returns a type).
 def create_type_ident(p):
-    return TypeIdent(p);
+    return TypeIdent(p, p.sl);
 
 def create_fn_signature(p):
     assert p.is_nterm(NTERM_FN_SIGNATURE)
@@ -21,7 +21,7 @@ def create_fn_signature(p):
     if p.tok_val[ii].is_term("->"):
         ii += 1
         return_val = create_type_ident(p.tok_val[ii])
-    return AstFnSignature(parameter_decl_list, is_mut, return_val);
+    return AstFnSignature(parameter_decl_list, is_mut, return_val, p.sl);
 
 def create_parameter_decl_list(p):
     assert p.is_nterm(NTERM_PARAMETER_DECL_LIST)
@@ -43,7 +43,7 @@ def create_parameter_decl_list(p):
             ## [comptime] Type
             ptype = create_type_ident(pdecl.tok_val[jj])
             jj += 1
-        ret.append(ParameterDecl(pname, ptype))
+        ret.append(ParameterDecl(pname, ptype, p.sl))
         if p.tok_val[ii+1].is_term(")"): break
         ast_assert(p.tok_val[ii+1].is_term(","))
         ii += 2
@@ -58,7 +58,7 @@ def create_binary_expression(p):
     lhs = create_expression(p.tok_val[0])
     op = create_op(p.tok_val[1])
     rhs = create_expression(p.tok_val[2])
-    return BinaryExpression(lhs, op, rhs)
+    return BinaryExpression(lhs, op, rhs, p.sl)
 
 ## This actually creates an AstProgram, since they're identical, but expects surrounding {}
 def create_statement_list(p):
@@ -69,7 +69,7 @@ def create_statement_list(p):
         children.append(create_statement(p.tok_val[ii]))
         ii += 1
         while ii < len(p.tok_val) and p.tok_val[ii].is_term(";"): ii += 1
-    return AstProgram(children)
+    return AstProgram(children, p.sl)
 
 def create_if(p):
     if p.is_nterm(NTERM_IF):
@@ -78,7 +78,7 @@ def create_if(p):
         ii += 1
         body = create_statement_list(p.tok_val[ii])
         ii += 1
-        conditionals = [AstConditional(cond, body)]
+        conditionals = [AstConditional(cond, body, p.sl)]
         elifs = []
         while ii < len(p.tok_val) and p.tok_val[ii].tok_type == NTERM_ELIF:
             conditionals.append(create_if(p.tok_val[ii]))
@@ -86,11 +86,11 @@ def create_if(p):
         else_ = None
         if ii < len(p.tok_val) and p.tok_val[ii].tok_type == NTERM_ELSE:
             else_ = create_if(p.tok_val[ii])
-        return AstIf(conditionals, else_)
+        return AstIf(conditionals, p.sl, else_)
     elif p.is_nterm(NTERM_ELIF):
         cond = create_expression(p.tok_val[1])
         body = create_statement_list(p.tok_val[2])
-        return AstConditional(cond, body)
+        return AstConditional(cond, body, p.sl)
     elif p.is_nterm(NTERM_ELSE):
         return create_statement_list(p.tok_val[1])
 
@@ -106,7 +106,7 @@ def create_parameter_list(p):
 def create_function_call(p):
     assert p.is_nterm(NTERM_FUNCTION_CALL)
     assert p.tok_val[0].tok_val[0].is_nterm(NTERM_IDENTIFIER), "Function call where function name isn't ident unimpl"
-    function_name = FuncIdent(p.tok_val[0])
+    function_name = FuncIdent(p.tok_val[0], p.sl)
     template_params = None
     ii = 1
     if p.tok_val[ii].is_term("::"):
@@ -116,20 +116,20 @@ def create_function_call(p):
 
     assert not template_params, "Template params not implemented"
     param_list = create_parameter_list(p.tok_val[ii])
-    return AstFunctionCall(function_name, template_params, param_list)
+    return AstFunctionCall(function_name, template_params, param_list, p.sl)
 
 def create_literal(p):
     assert p.is_nterm(NTERM_LITERAL)
     tok = p.tok_val[0].tok_val
     if tok[0] == "int_lit":
-        return AstIntLit(int(tok[1]))
+        return AstIntLit(int(tok[1]), p.sl)
     else:
         assert False, "Unimpl lit type: '" + tok[0] + "'"
 
 def create_expression(p):
     assert p.is_nterm(NTERM_EXPRESSION)
     if p.tok_val[0].is_nterm(NTERM_IDENTIFIER):
-        return VarIdent(p)
+        return VarIdent(p, p.sl)
     elif p.tok_val[0].is_nterm(NTERM_BINARY_EXPRESSION):
         return create_binary_expression(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_IF):
@@ -160,7 +160,7 @@ def create_fn_declaration(p):
     fn_signature = create_fn_signature(p.tok_val[ii])
     ii += 1
     body = create_expression(p.tok_val[ii]);
-    return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body)
+    return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, p.sl)
 
 def create_statement(p):
     assert p.is_nterm(NTERM_STATEMENT)
@@ -184,7 +184,7 @@ def create_program(p):
         children.append(create_statement_or_processor(p.tok_val[ii]))
         ii += 1
         while ii < len(p.tok_val) and p.tok_val[ii].is_term(";"): ii += 1
-    return AstProgram(children)
+    return AstProgram(children, p.sl)
 
 def create_ast(p):
     return create_program(p)

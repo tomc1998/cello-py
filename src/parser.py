@@ -54,6 +54,7 @@ class ParseNode:
     def __init__(self, tok_type, tok_val, sl):
         self.tok_type = tok_type
         self.tok_val = tok_val
+        self.sl = sl
 
     def to_string(self):
         if self.tok_type == TERM: return self.tok_val[1]

@@ -3,7 +3,9 @@ from parser import *
 from lang_type import *
 from scope import Var
 
-class AstNode: pass
+class AstNode:
+    def __init__(self, decoration):
+        self.decoration = decoration
 
 # Asserts if not possible
 # If to_ty == None, return val
@@ -23,7 +25,8 @@ def gen_coercion(b, val, from_ty, to_ty):
         assert False, "Can't coerce from " + str(from_ty) + " to " + str(to_ty)
 
 class AstProgram(AstNode):
-    def __init__(self, children):
+    def __init__(self, children, decoration):
+        super().__init__(decoration)
         self.children = children
 
     def codegen(self, m, s, b, exp_ty=None):
@@ -37,8 +40,10 @@ class AstProgram(AstNode):
 
 ## Basically just a list of AstConditionals with an optional fallback (else clause)
 class AstIf(AstNode):
-    def __init__(self, conditions, fallback=None):
+    def __init__(self, conditions, decoration, fallback=None):
+        super().__init__(decoration)
         self.conditions = conditions
+        self.decoration = decoration
         self.fallback = fallback
 
     def get_type(self, s):
@@ -66,7 +71,8 @@ class AstIf(AstNode):
 
 ## Execute some code if the given condition is true
 class AstConditional(AstNode):
-    def __init__(self, cond, body):
+    def __init__(self, cond, body, decoration):
+        super().__init__(decoration)
         self.cond = cond
         self.body = body
     def codegen(self, m, s, b, after_block, ty, exp_ty=None):
@@ -83,7 +89,8 @@ class AstConditional(AstNode):
         return (gen_coercion(b, true_val, self.body.get_type(s), exp_ty), true_block)
 
 class AstFnDeclaration(AstNode):
-    def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body):
+    def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body, decoration):
+        super().__init__(decoration)
         self.fn_name = fn_name
         self.template_parameter_decl_list = template_parameter_decl_list
         self.fn_signature = fn_signature
@@ -118,7 +125,8 @@ class AstFnDeclaration(AstNode):
         return fn
 
 class AstFnSignature(AstNode):
-    def __init__(self, parameter_decl_list, is_mut, return_type):
+    def __init__(self, parameter_decl_list, is_mut, return_type, decoration):
+        super().__init__(decoration)
         self.parameter_decl_list = parameter_decl_list
         self.is_mut = is_mut
         self.return_type = return_type
@@ -129,7 +137,8 @@ class AstFnSignature(AstNode):
         return FunctionType(ret, args)
 
 class AstFunctionCall(AstNode):
-    def __init__(self, name, template_params, param_list):
+    def __init__(self, name, template_params, param_list, decoration):
+        super().__init__(decoration)
         assert not template_params, "Template params not implemented"
         self.name = name
         self.template_params = template_params
@@ -148,7 +157,8 @@ class AstFunctionCall(AstNode):
         return gen_coercion(b, b.call(fn, args), self.get_type(s), exp_ty)
 
 class AstIntLit(AstNode):
-    def __init__(self, val):
+    def __init__(self, val, decoration):
+        super().__init__(decoration)
         self.val = val
         # Find the smallest int type this'll fit into
         num_bits = None
@@ -178,12 +188,14 @@ class AstIntLit(AstNode):
         return gen_coercion(b, ir.Constant(self.internal_ty.to_llvm_type(), self.val), self.get_type(s), exp_ty)
 
 class ParameterDecl(AstNode):
-    def __init__(self, name, type_ident):
+    def __init__(self, name, type_ident, decoration):
+        super().__init__(decoration)
         self.name = name
         self.type_ident = type_ident
 
 class Resolveable(AstNode):
-    def __init__(self, p):
+    def __init__(self, p, decoration):
+        super().__init__(decoration)
         assert p.is_nterm(NTERM_EXPRESSION)
         # If not none, this type has already been resolved (looked up)
         self.resolved = None
@@ -222,7 +234,8 @@ class VarIdent(Resolveable):
             return gen_coercion(b, b.load(self.resolve(s).val, name=self.resolve(s).name), self.get_type(s), exp_ty)
 
 class BinaryExpression(AstNode):
-    def __init__(self, lhs, op, rhs):
+    def __init__(self, lhs, op, rhs, decoration):
+        super().__init__(decoration)
         self.lhs = lhs
         self.op = op
         self.rhs = rhs
