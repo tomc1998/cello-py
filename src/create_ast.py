@@ -94,6 +94,30 @@ def create_if(p):
     elif p.is_nterm(NTERM_ELSE):
         return create_statement_list(p.tok_val[1])
 
+def create_parameter_list(p):
+    ii = 1
+    params = []
+    while ii < len(p.tok_val) and not p.tok_val[ii].is_term(")"):
+        if p.tok_val[ii].is_nterm(NTERM_EXPRESSION):
+            params.append(create_expression(p.tok_val[ii]))
+        ii += 1
+    return params
+
+def create_function_call(p):
+    assert p.is_nterm(NTERM_FUNCTION_CALL)
+    assert p.tok_val[0].tok_val[0].is_nterm(NTERM_IDENTIFIER), "Function call where function name isn't ident unimpl"
+    function_name = FuncIdent(p.tok_val[0])
+    template_params = None
+    ii = 1
+    if p.tok_val[ii].is_term("::"):
+        ii += 1
+        template_params = create_template_parameter_list(p.tok_val[ii])
+        ii += 1
+
+    assert not template_params, "Template params not implemented"
+    param_list = create_parameter_list(p.tok_val[ii])
+    return AstFunctionCall(function_name, template_params, param_list)
+
 def create_expression(p):
     assert p.is_nterm(NTERM_EXPRESSION)
     if p.tok_val[0].is_nterm(NTERM_IDENTIFIER):
@@ -102,6 +126,8 @@ def create_expression(p):
         return create_binary_expression(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_IF):
         return create_if(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_FUNCTION_CALL):
+        return create_function_call(p.tok_val[0])
     else:
         assert False, "Unimpl creating expr from " + p.tok_val[0].tok_type
 

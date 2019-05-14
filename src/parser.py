@@ -157,6 +157,38 @@ def parse_if(l):
         children.append(parse_else(l))
     return ParseNode(NTERM_IF, children, l.sl())
 
+def parse_parameter_list(l):
+    children = []
+    assert_val(l, "(")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    while l.peek() and l.peek()[1] != ")":
+        children.append(parse_expression(l, True))
+        if l.peek() and l.peek()[1] == ",":
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, ")")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_PARAMETER_LIST, children, l.sl())
+
+def parse_template_parameter_list(l):
+    children = []
+    assert_val(l, "<")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    while l.peek() and l.peek()[1] != ">":
+        children.append(parse_expression(l, true))
+        if l.peek() and l.peek()[1] == ",":
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, ">")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_TEMPLATE_PARAMETER_LIST, children, l.sl())
+
+def parse_function_call(l, lrec=None):
+    children = [lrec]
+    if l.peek() and l.peek()[1] == "::":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        children.append(parse_template_parameter_list(l))
+    children.append(parse_parameter_list(l));
+    return ParseNode(NTERM_FUNCTION_CALL, children, l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")

@@ -77,6 +77,8 @@ class AstFnDeclaration(AstNode):
         fnty = internal_fnty.to_llvm_type()
         ## Create the function
         fn = ir.Function(m, fnty, name=self.fn_name)
+        ## Add to scope 
+        s.set(self.fn_name, Var(internal_fnty, fn))
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)
 
@@ -105,6 +107,22 @@ class AstFnSignature(AstNode):
         ret = self.return_type.resolve(s)
         args = [pdecl.type_ident.resolve(s) for pdecl in self.parameter_decl_list]
         return FunctionType(ret, args)
+
+class AstFunctionCall(AstNode):
+    def __init__(self, name, template_params, param_list):
+        assert not template_params, "Template params not implemented"
+        self.name = name
+        self.template_params = template_params
+        self.param_list = param_list
+
+    def codegen(self, m, s, b):
+        # Find function
+        fn = self.name.resolve(s).val
+        # Create args
+        args = []
+        for a in self.param_list: args.append(a.codegen(m, s, b))
+        # Call the function
+        return b.call(fn, args)
 
 class ParameterDecl(AstNode):
     def __init__(self, name, type_ident):
@@ -138,6 +156,8 @@ class TypeIdent(Resolveable):
         ## Now convert that to an LLVM type, assuming resolved is actually a type (?)
         assert isinstance(resolved.var_type, KindType)
         return self.resolved.var_type.val
+
+class FuncIdent(Resolveable): pass
 
 class VarIdent(Resolveable):
     def get_type(self, s):
