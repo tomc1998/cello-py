@@ -101,7 +101,7 @@ ComptimeIf ::= "comptime" If
 ForLoop ::= "for" Identifier ["," Identifier] "in" Expression Expression
 If ::= "if" Expression StatementList Elif * [ Else ]
 Elif ::= "elif" Expression StatementList
-Else ::= "else" Expression StatementList
+Else ::= "else" StatementList
 
 Lambda ::= "lambda" FnSignature Expression
 

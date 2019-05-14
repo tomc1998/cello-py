@@ -9,11 +9,55 @@ class AstProgram(AstNode):
     def __init__(self, children):
         self.children = children
 
-    def codegen(self, m, s):
+    def codegen(self, m, s, b):
         ret = []
         for c in self.children:
-            ret.append(c.codegen(m, s))
+            ret.append(c.codegen(m, s, b))
         return ret
+
+    def get_type(self, s):
+        return self.children[len(self.children)-1].get_type(s)
+
+## Basically just a list of AstConditionals with an optional fallback (else clause)
+class AstIf(AstNode):
+    def __init__(self, conditions, fallback=None):
+        self.conditions = conditions
+        self.fallback = fallback
+
+    def get_type(self, s):
+        return self.conditions[0].body.get_type(s)
+
+    def codegen(self, m, s, b):
+        ty = self.get_type(s).to_llvm_type()
+        ii = len(self.conditions)-1
+        curr_otherwise = None
+        if self.fallback:
+            curr_otherwise_block = b.append_basic_block()
+            curr_otherwise = self.fallback.codegen(m, s, b)
+        while ii >= 0:
+            curr_otherwise_block = b.append_basic_block()
+            curr_otherwise = self.conditions[ii].codegen(m, s, b, curr_otherwise_block, curr_otherwise, ty)
+            ii -= 1
+
+## Execute some code if the given condition is true
+class AstConditional(AstNode):
+    def __init__(self, cond, body):
+        self.cond = cond
+        self.body = body
+    def codegen(self, m, s, b, otherwise, otherwise_val, ty):
+        curr_block = b.block
+        true_block = b.append_basic_block()
+        after_block = b.append_basic_block()
+        b.position_at_end(curr_block)
+        b.cbranch(self.cond.codegen(m, s, b), true_block, otherwise)
+        b.position_at_start(true_block)
+        true_val = self.body.codegen(m, s, b)
+        b.branch(after_block)
+        b.position_at_end(after_block)
+        phi = b.phi(ty)
+        phi.add_incoming(true_val, true_block)
+        phi.add_incoming(otherwise_val, otherwise)
+        return phi
 
 class AstFnDeclaration(AstNode):
     def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body):
@@ -22,7 +66,7 @@ class AstFnDeclaration(AstNode):
         self.fn_signature = fn_signature
         self.body = body
 
-    def codegen(self, m, s):
+    def codegen(self, m, s, b=None):
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(m, s)
         fnty = internal_fnty.to_llvm_type()
@@ -121,6 +165,9 @@ class BinaryExpression(AstNode):
                 else: return b.udiv(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
             elif self.op == "*":
                 return b.mul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+            elif self.op == ">" or self.op == "<" or self.op == ">=" or self.op == "<=" or self.op == "==" or self.op == "!=":
+                if ty.is_signed: return b.icmp_signed(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "cmp(" + ty.name + ")")
+                else: return b.icmp_unsigned(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "cmp(" + ty.name + ")")
             else: raise NotImplementedError("Unimpl op " + self.op + " for type " + ty.name)
         elif isinstance(ty, FloatType):
             if self.op == "+":

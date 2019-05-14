@@ -28,9 +28,9 @@ NTERM_IDENTIFIER = 'IDENTIFIER'
 NTERM_LITERAL = 'LITERAL'
 NTERM_MAKE_EXPRESSION = 'MAKE_EXPRESSION'
 NTERM_OP = 'OP'
-NTERM_IF_ = 'IF_'
+NTERM_IF = 'IF'
 NTERM_ELIF = 'ELIF'
-NTERM_ELSE_ = 'ELSE_'
+NTERM_ELSE = 'ELSE'
 NTERM_LAMBDA = 'LAMBDA'
 NTERM_FOR_LOOP = 'FOR_LOOP'
 NTERM_COMPTIME_FOR_LOOP = 'COMPTIME_FOR_LOOP'
@@ -117,6 +117,45 @@ def parse_op(l):
 
 def parse_binary_expression(l, lrec=False):
   return ParseNode(NTERM_BINARY_EXPRESSION, [lrec, parse_op(l), parse_expression(l)], l.sl());
+
+def parse_statement_list(l):
+    children = []
+    assert_val(l, "{")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    while l.peek() and l.peek()[1] != "}":
+        children.append(parse_statement(l))
+        if l.peek() and l.peek()[1] == ";":
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "}")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_STATEMENT_LIST, children, l.sl())
+
+def parse_elif(l):
+    children = []
+    assert_val(l, "elif")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    children.append(parse_statement_list(l))
+    return ParseNode(NTERM_ELIF, children, l.sl())
+
+def parse_else(l):
+    children = []
+    assert_val(l, "else")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_statement_list(l))
+    return ParseNode(NTERM_ELSE, children, l.sl())
+
+def parse_if(l):
+    children = []
+    assert_val(l, "if")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    children.append(parse_statement_list(l))
+    while l.peek() and l.peek()[1] == "elif":
+        children.append(parse_elif(l))
+    if l.peek() and l.peek()[1] == "else":
+        children.append(parse_else(l))
+    return ParseNode(NTERM_IF, children, l.sl())
 
 def parse_expression(l, no_right_angle=False):
     """
@@ -239,7 +278,6 @@ def parse_fn_signature(l):
         children.append(ParseNode(TERM, l.next(), l.sl()))
         children.append(parse_expression(l))
     return ParseNode(NTERM_FN_SIGNATURE, children, l.sl())
-
 
 def parse_statement(l):
     assert_not_empty(l, "Expected statement, got EOF")

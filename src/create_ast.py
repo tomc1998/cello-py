@@ -60,13 +60,50 @@ def create_binary_expression(p):
     rhs = create_expression(p.tok_val[2])
     return BinaryExpression(lhs, op, rhs)
 
+## This actually creates an AstProgram, since they're identical, but expects surrounding {}
+def create_statement_list(p):
+    assert p.is_nterm(NTERM_STATEMENT_LIST)
+    children = []
+    ii = 1
+    while ii < len(p.tok_val) and not p.tok_val[ii].is_term("}"):
+        children.append(create_statement(p.tok_val[ii]))
+        ii += 1
+        while ii < len(p.tok_val) and p.tok_val[ii].is_term(";"): ii += 1
+    return AstProgram(children)
+
+def create_if(p):
+    if p.is_nterm(NTERM_IF):
+        ii = 1
+        cond = create_expression(p.tok_val[ii])
+        ii += 1
+        body = create_statement_list(p.tok_val[ii])
+        ii += 1
+        conditionals = [AstConditional(cond, body)]
+        elifs = []
+        while ii < len(p.tok_val) and p.tok_val[ii].tok_type == NTERM_ELIF:
+            conditionals.append(create_if(p.tok_val[ii]))
+            ii += 1
+        else_ = None
+        if ii < len(p.tok_val) and p.tok_val[ii].tok_type == NTERM_ELSE:
+            else_ = create_if(p.tok_val[ii])
+        return AstIf(conditionals, else_)
+    elif p.is_nterm(NTERM_ELIF):
+        cond = create_expression(p.tok_val[1])
+        body = create_statement_list(p.tok_val[2])
+        return AstConditional(cond, body)
+    elif p.is_nterm(NTERM_ELSE):
+        return create_statement_list(p.tok_val[1])
+
 def create_expression(p):
     assert p.is_nterm(NTERM_EXPRESSION)
     if p.tok_val[0].is_nterm(NTERM_IDENTIFIER):
         return VarIdent(p)
     elif p.tok_val[0].is_nterm(NTERM_BINARY_EXPRESSION):
         return create_binary_expression(p.tok_val[0])
-    assert False, "Unimpl"
+    elif p.tok_val[0].is_nterm(NTERM_IF):
+        return create_if(p.tok_val[0])
+    else:
+        assert False, "Unimpl creating expr from " + p.tok_val[0].tok_type
 
 
 def create_fn_declaration(p):
@@ -91,9 +128,11 @@ def create_statement(p):
     assert p.is_nterm(NTERM_STATEMENT)
     if p.tok_val[0].is_nterm(NTERM_FN_DECLARATION):
         return create_fn_declaration(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_EXPRESSION):
+        return create_expression(p.tok_val[0])
     assert False
 
-def create_ast_statement_or_processor(p):
+def create_statement_or_processor(p):
     assert p.is_nterm(NTERM_STATEMENT_OR_PREPROCESSOR)
     if p.tok_val[0].is_nterm(NTERM_STATEMENT):
         return create_statement(p.tok_val[0])
@@ -104,7 +143,7 @@ def create_program(p):
     children = []
     ii = 0
     while ii < len(p.tok_val):
-        children.append(create_ast_statement_or_processor(p.tok_val[ii]))
+        children.append(create_statement_or_processor(p.tok_val[ii]))
         ii += 1
         while ii < len(p.tok_val) and p.tok_val[ii].is_term(";"): ii += 1
     return AstProgram(children)
