@@ -1,5 +1,5 @@
-
 /** An end-to-end test of the cello compiler */
-fn add = (a: i32, b: i32) -> i32 a + b;
 
+fn add = (a: i32, b: i32) -> i32 a + b;
 fn max = (a: i32, b: i32) -> i32 if a > b { a } else { b }
+fn max3 = (a: i32, b: i32, c: i32) -> i32 if a > b { if a > c { a } else { c } } else { if b > c { b } else { c } }

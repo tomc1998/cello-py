@@ -10,9 +10,9 @@ class AstProgram(AstNode):
         self.children = children
 
     def codegen(self, m, s, b):
-        ret = []
-        for c in self.children:
-            ret.append(c.codegen(m, s, b))
+        ret = None
+        for i, c in enumerate(self.children):
+            ret = c.codegen(m, s, b)
         return ret
 
     def get_type(self, s):
@@ -29,35 +29,40 @@ class AstIf(AstNode):
 
     def codegen(self, m, s, b):
         ty = self.get_type(s).to_llvm_type()
-        ii = len(self.conditions)-1
-        curr_otherwise = None
+        after_block = b.append_basic_block("after")
+        incoming = []
+        for cond in self.conditions:
+            incoming.append(cond.codegen(m, s, b, after_block, ty))
         if self.fallback:
-            curr_otherwise_block = b.append_basic_block()
-            curr_otherwise = self.fallback.codegen(m, s, b)
-        while ii >= 0:
-            curr_otherwise_block = b.append_basic_block()
-            curr_otherwise = self.conditions[ii].codegen(m, s, b, curr_otherwise_block, curr_otherwise, ty)
-            ii -= 1
+            incoming.append((self.fallback.codegen(m, s, b), b.block))
+        b.branch(after_block)
+        b.position_at_start(after_block)
+        if self.fallback:
+            phi = b.phi(ty, name="if-chain-result")
+            for (val, block) in incoming:
+                print(block.name)
+                phi.add_incoming(val, block)
+            return phi
+        else:
+            return None
 
 ## Execute some code if the given condition is true
 class AstConditional(AstNode):
     def __init__(self, cond, body):
         self.cond = cond
         self.body = body
-    def codegen(self, m, s, b, otherwise, otherwise_val, ty):
+    def codegen(self, m, s, b, after_block, ty):
         curr_block = b.block
         true_block = b.append_basic_block()
-        after_block = b.append_basic_block()
+        false_block = b.append_basic_block()
         b.position_at_end(curr_block)
-        b.cbranch(self.cond.codegen(m, s, b), true_block, otherwise)
+        b.cbranch(self.cond.codegen(m, s, b), true_block, false_block)
         b.position_at_start(true_block)
         true_val = self.body.codegen(m, s, b)
         b.branch(after_block)
-        b.position_at_end(after_block)
-        phi = b.phi(ty)
-        phi.add_incoming(true_val, true_block)
-        phi.add_incoming(otherwise_val, otherwise)
-        return phi
+        true_block = b.block
+        b.position_at_start(false_block)
+        return (true_val, true_block)
 
 class AstFnDeclaration(AstNode):
     def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body):
