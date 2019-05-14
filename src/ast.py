@@ -5,15 +5,32 @@ from scope import Var
 
 class AstNode: pass
 
+# Asserts if not possible
+# If to_ty == None, return val
+def gen_coercion(b, val, from_ty, to_ty):
+    if not to_ty: return val
+    if from_ty == to_ty or from_ty.eq(to_ty):
+        return val;
+    if isinstance(from_ty, IntType) and isinstance(to_ty, IntType):
+        # Just coerce with no typechecking
+        if from_ty.num_bits == to_ty.num_bits: return val
+        if from_ty.num_bits < to_ty.num_bits:
+            if from_ty.is_signed: return b.sext(val, to_ty.to_llvm_type())
+            else: return b.zext(val, to_ty.to_llvm_type())
+        else:
+            return b.trunc(val, to_ty.to_llvm_type())
+    else:
+        assert False, "Can't coerce from " + str(from_ty) + " to " + str(to_ty)
+
 class AstProgram(AstNode):
     def __init__(self, children):
         self.children = children
 
-    def codegen(self, m, s, b):
+    def codegen(self, m, s, b, exp_ty=None):
         ret = None
         for i, c in enumerate(self.children):
             ret = c.codegen(m, s, b)
-        return ret
+        return gen_coercion(b, ret, self.get_type(s), exp_ty)
 
     def get_type(self, s):
         return self.children[len(self.children)-1].get_type(s)
@@ -27,14 +44,15 @@ class AstIf(AstNode):
     def get_type(self, s):
         return self.conditions[0].body.get_type(s)
 
-    def codegen(self, m, s, b):
-        ty = self.get_type(s).to_llvm_type()
+    def codegen(self, m, s, b, exp_ty=None):
+        internal_type = self.get_type(s)
+        ty = internal_type.to_llvm_type()
         after_block = b.append_basic_block("after")
         incoming = []
         for cond in self.conditions:
-            incoming.append(cond.codegen(m, s, b, after_block, ty))
+            incoming.append(cond.codegen(m, s, b, after_block, ty, exp_ty=internal_type))
         if self.fallback:
-            incoming.append((self.fallback.codegen(m, s, b), b.block))
+            incoming.append((self.fallback.codegen(m, s, b, exp_ty=internal_type), b.block))
         b.branch(after_block)
         b.position_at_start(after_block)
         if self.fallback:
@@ -42,7 +60,7 @@ class AstIf(AstNode):
             for (val, block) in incoming:
                 print(block.name)
                 phi.add_incoming(val, block)
-            return phi
+            return gen_coercion(b, phi, self.get_type(s), exp_ty)
         else:
             return None
 
@@ -51,7 +69,7 @@ class AstConditional(AstNode):
     def __init__(self, cond, body):
         self.cond = cond
         self.body = body
-    def codegen(self, m, s, b, after_block, ty):
+    def codegen(self, m, s, b, after_block, ty, exp_ty=None):
         curr_block = b.block
         true_block = b.append_basic_block()
         false_block = b.append_basic_block()
@@ -62,7 +80,7 @@ class AstConditional(AstNode):
         b.branch(after_block)
         true_block = b.block
         b.position_at_start(false_block)
-        return (true_val, true_block)
+        return (gen_coercion(b, true_val, self.body.get_type(s), exp_ty), true_block)
 
 class AstFnDeclaration(AstNode):
     def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body):
@@ -71,7 +89,9 @@ class AstFnDeclaration(AstNode):
         self.fn_signature = fn_signature
         self.body = body
 
-    def codegen(self, m, s, b=None):
+    def get_type(self, s): return None
+
+    def codegen(self, m, s, b):
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(m, s)
         fnty = internal_fnty.to_llvm_type()
@@ -93,7 +113,7 @@ class AstFnDeclaration(AstNode):
             var.val = alloca
             subscope.set(name, var)
 
-        b.ret(self.body.codegen(m, subscope, b))
+        b.ret(self.body.codegen(m, subscope, b, exp_ty=internal_fnty.return_type))
 
         return fn
 
@@ -115,14 +135,47 @@ class AstFunctionCall(AstNode):
         self.template_params = template_params
         self.param_list = param_list
 
-    def codegen(self, m, s, b):
+    def get_type(self, s):
+        return self.name.resolve(s).var_type.return_type
+
+    def codegen(self, m, s, b, exp_ty=None):
         # Find function
         fn = self.name.resolve(s).val
         # Create args
         args = []
         for a in self.param_list: args.append(a.codegen(m, s, b))
         # Call the function
-        return b.call(fn, args)
+        return gen_coercion(b, b.call(fn, args), self.get_type(s), exp_ty)
+
+class AstIntLit(AstNode):
+    def __init__(self, val):
+        self.val = val
+        # Find the smallest int type this'll fit into
+        num_bits = None
+        signed = None
+        if self.val < 0:
+            signed = False
+            if self.val < 2**8: num_bits = 8
+            elif self.val < 2**16: num_bits = 16
+            elif self.val < 2**32: num_bits = 32
+            elif self.val < 2**64: num_bits = 64
+            else: assert False, "Int overflow"
+        else:
+            signed = True
+            if self.val >= -2**7: num_bits = 8
+            if self.val >= -2**15: num_bits = 16
+            if self.val >= -2**31: num_bits = 32
+            if self.val >= -2**63: num_bits = 64
+            else: assert False, "Int overflow"
+        ty = IntType(num_bits, signed)
+        self.internal_ty = ty
+
+    def get_type(self, s):
+        return self.internal_ty
+
+    def codegen(self, m, s, b, exp_ty=None):
+        # Gen the int type and return
+        return gen_coercion(b, ir.Constant(self.internal_ty.to_llvm_type(), self.val), self.get_type(s), exp_ty)
 
 class ParameterDecl(AstNode):
     def __init__(self, name, type_ident):
@@ -145,7 +198,7 @@ class Resolveable(AstNode):
         if n.is_nterm(NTERM_IDENTIFIER):
             self.resolved = s.lookup(n.tok_val[0].tok_val[1])
         else:
-            ast_assert(False, "Can't resolve type " + self.parse_node.to_string())
+            assertFalse, "Can't resolve type " + self.parse_node.to_string()
         return self.resolved
 
 class TypeIdent(Resolveable):
@@ -162,11 +215,11 @@ class FuncIdent(Resolveable): pass
 class VarIdent(Resolveable):
     def get_type(self, s):
         return self.resolve(s).var_type
-    def codegen(self, m, s, b, lval=False):
+    def codegen(self, m, s, b, exp_ty=None, lval=False):
         if lval:
-            return self.resolve(s).val
+            return gen_coercion(b, self.resolve(s).val, self.get_type(s), exp_ty)
         else:
-            return b.load(self.resolve(s).val, name=self.resolve(s).name)
+            return gen_coercion(b, b.load(self.resolve(s).val, name=self.resolve(s).name), self.get_type(s), exp_ty)
 
 class BinaryExpression(AstNode):
     def __init__(self, lhs, op, rhs):
@@ -175,34 +228,36 @@ class BinaryExpression(AstNode):
         self.rhs = rhs
 
     def get_type(self, s):
-        return self.lhs.get_type(s)
+        if self.op == "+" or self.op == "-" or self.op == "/" or self.op == "*":
+            return self.lhs.get_type(s)
+        else: return BoolType()
 
-    def codegen(self, m, s, b):
+    def codegen(self, m, s, b, exp_ty=None):
         ## Switch type, then switch on op
-        ty = self.get_type(s)
+        ty = self.lhs.get_type(s)
         if isinstance(ty, IntType):
             if self.op == "+":
-                return b.add(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.add(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "-":
-                return b.sub(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.sub(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "/":
-                if ty.is_signed: return b.div(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
-                else: return b.udiv(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                if ty.is_signed: return gen_coercion(b, b.div(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
+                else: return gen_coercion(b, b.udiv(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "*":
-                return b.mul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.mul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == ">" or self.op == "<" or self.op == ">=" or self.op == "<=" or self.op == "==" or self.op == "!=":
-                if ty.is_signed: return b.icmp_signed(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "cmp(" + ty.name + ")")
-                else: return b.icmp_unsigned(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "cmp(" + ty.name + ")")
+                if ty.is_signed: return gen_coercion(b, b.icmp_signed(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "cmp(" + ty.name + ")"), self.get_type(s), exp_ty)
+                else: return gen_coercion(b, b.icmp_unsigned(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "cmp(" + ty.name + ")"), self.get_type(s), exp_ty)
             else: raise NotImplementedError("Unimpl op " + self.op + " for type " + ty.name)
         elif isinstance(ty, FloatType):
             if self.op == "+":
-                return b.fadd(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.fadd(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "-":
-                return b.fsub(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.fsub(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "/":
-                return b.fdiv(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.fdiv(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "*":
-                return b.fmul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b), "binop(" + ty.name + ")")
+                return gen_coercion(b, b.fmul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
         else: raise NotImplementedError("Unimpl op " + self.op + " for type " + ty.name)
 
 

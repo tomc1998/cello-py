@@ -118,6 +118,14 @@ def create_function_call(p):
     param_list = create_parameter_list(p.tok_val[ii])
     return AstFunctionCall(function_name, template_params, param_list)
 
+def create_literal(p):
+    assert p.is_nterm(NTERM_LITERAL)
+    tok = p.tok_val[0].tok_val
+    if tok[0] == "int_lit":
+        return AstIntLit(int(tok[1]))
+    else:
+        assert False, "Unimpl lit type: '" + tok[0] + "'"
+
 def create_expression(p):
     assert p.is_nterm(NTERM_EXPRESSION)
     if p.tok_val[0].is_nterm(NTERM_IDENTIFIER):
@@ -128,6 +136,10 @@ def create_expression(p):
         return create_if(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_FUNCTION_CALL):
         return create_function_call(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_STATEMENT_LIST):
+        return create_statement_list(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_LITERAL):
+        return create_literal(p.tok_val[0])
     else:
         assert False, "Unimpl creating expr from " + p.tok_val[0].tok_type
 

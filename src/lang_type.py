@@ -50,6 +50,9 @@ class IntType(Type):
     def to_llvm_type(self):
         return ir.IntType(self.num_bits)
 
+    def eq(self, other):
+        return isinstance(other, IntType) and other.num_bits == self.num_bits and other.is_signed == self.is_signed
+
 class FloatType(Type):
     def __init__(self, num_bits: int):
         super().__init__("f" + str(num_bits))
@@ -59,8 +62,11 @@ class FloatType(Type):
         elif self.num_bits == 64: return it.DoubleType
         else: raise NotImplementedError(str(self.num_bits) + " bit float not implemented")
 
+    def eq(self, other):
+        return isinstance(other, FloatType) and other.num_bits == self.num_bits
 
 class FunctionType(Type):
+
     def __init__(self, return_type: Type, args: List[Type]):
         self.return_type = return_type
         self.args = args
@@ -69,3 +75,7 @@ class FunctionType(Type):
         ret = self.return_type.to_llvm_type()
         args = [arg.to_llvm_type() for arg in self.args]
         return ir.FunctionType(ret, tuple(args))
+
+class BoolType(Type):
+    def __init__(self):
+        super().__init__("bool")

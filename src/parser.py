@@ -181,6 +181,13 @@ def parse_template_parameter_list(l):
     children.append(ParseNode(TERM, l.next(), l.sl()))
     return ParseNode(NTERM_TEMPLATE_PARAMETER_LIST, children, l.sl())
 
+def parse_literal(l):
+    assert_not_empty(l, "Expected literal, got EOF")
+    if l.peek()[0] != "int_lit" and l.peek()[0] != "float_lit" and l.peek()[0] != "string_lit" and l.peek()[0] != "c_string_lit":
+        raise ParseError(l.sl(), "Expected literal, got " + l.peek()[1].to_string())
+    return ParseNode(NTERM_LITERAL, [ParseNode(TERM, l.next(), l.sl())], l.sl())
+
+
 def parse_function_call(l, lrec=None):
     children = [lrec]
     if l.peek() and l.peek()[1] == "::":
