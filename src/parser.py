@@ -106,7 +106,6 @@ def parse_fn_declaration(l):
     children.append(parse_identifier(l))
     assert_not_empty(l, "Expected rest of function declaration, got EOF")
     if l.peek()[1] == "<": children.append(parse_template_parameter_decl_list(l))
-    assert_val(l, "=")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     children.append(parse_fn_signature(l))
     children.append(parse_expression(l))
@@ -175,7 +174,7 @@ def parse_template_parameter_list(l):
     assert_val(l, "<")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     while l.peek() and l.peek()[1] != ">":
-        children.append(parse_expression(l, true))
+        children.append(parse_expression(l, True))
         if l.peek() and l.peek()[1] == ",":
             children.append(ParseNode(TERM, l.next(), l.sl()))
     assert_val(l, ">")
@@ -188,6 +187,12 @@ def parse_literal(l):
         raise ParseError(l.sl(), "Expected literal, got " + l.peek()[1].to_string())
     return ParseNode(NTERM_LITERAL, [ParseNode(TERM, l.next(), l.sl())], l.sl())
 
+def parse_qualified_type(l, lrec=None):
+    children = [lrec]
+    assert_val(l, "::")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_template_parameter_list(l))
+    return ParseNode(NTERM_QUALIFIED_TYPE, children, l.sl())
 
 def parse_function_call(l, lrec=None):
     children = [lrec]
@@ -218,7 +223,7 @@ def parse_expression(l, no_right_angle=False):
     if l.peek()[1] == "{": ## StatementList
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_statement_list(l) ], l.sl())
     elif l.peek()[1] == "(":
-        children = [ParseNode(TERM, *l.next(), l.sl()), parse_expression(l)]
+        children = [ParseNode(TERM, l.next(), l.sl()), parse_expression(l)]
         assert_val(l, ")")
         children.append(ParseNode(TERM, l.next(), l.sl()))
         lrec = ParseNode(NTERM_EXPRESSION, children, l.sl())
@@ -283,6 +288,27 @@ def parse_expression(l, no_right_angle=False):
     ## If we added some more stuff on the end in the previous stage, re-wrap this
     ## in an 'expression' nterm. Otherwise, just return as-is.
     return ParseNode(NTERM_EXPRESSION, [lrec], l.sl()) if added_lrec else lrec
+
+def parse_meta_type_ident(l):
+    children = []
+    assert_val(l, "$")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_not_empty(l, "Expected meta type ident, got EOF")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_META_TYPE_IDENT, children, l.sl())
+
+
+def parse_template_parameter_decl_list(l):
+    children = []
+    assert_val(l, "<")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    while l.peek() and l.peek()[1] != ">":
+        children.append(parse_parameter_decl(l, no_right_angle=True))
+        if l.peek() and l.peek()[1] == ",":
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, ">")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_TEMPLATE_PARAMETER_DECL_LIST, children, l.sl())
 
 
 def parse_parameter_decl(l, no_right_angle=False):
