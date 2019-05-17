@@ -2,6 +2,7 @@ from llvmlite import ir
 from parser import *
 from lang_type import *
 from scope import Var
+import jit
 
 class AstNode:
     def __init__(self, decoration):
@@ -99,12 +100,14 @@ class AstFnDeclaration(AstNode):
     def get_type(self, s): return None
 
     def codegen(self, m, s, b):
+        jit.jit_node(self.body, s)
+
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(m, s)
         fnty = internal_fnty.to_llvm_type()
         ## Create the function
         fn = ir.Function(m, fnty, name=self.fn_name)
-        ## Add to scope 
+        ## Add to scope
         s.set(self.fn_name, Var(internal_fnty, fn))
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)

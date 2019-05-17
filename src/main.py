@@ -7,7 +7,14 @@ from builtin_types import init_builtin_types
 import lexer
 import parser
 import create_ast
+import jit
 from scope import Scope
+
+## Init everything
+llvmlite.binding.initialize()
+llvmlite.binding.initialize_native_target()
+llvmlite.binding.initialize_native_asmprinter()
+jit.init_jit()
 
 ## Open the file
 buf = ""
@@ -30,17 +37,16 @@ try:
     print(module)
 
     # Create final obj file with the module
-    ## Init everything
-    llvmlite.binding.initialize()
-    llvmlite.binding.initialize_native_target()
-    llvmlite.binding.initialize_native_asmprinter()
 
-    # # Get the target
+    # Get the target
     target = llvmlite.binding.Target.from_default_triple()
     target_machine = target.create_target_machine()
 
-    # Emit the obj to some buffer
+    # Create the module
     binding_module = llvmlite.binding.parse_assembly(str(module))
+    binding_module.verify()
+
+    # Emit the obj to some buffer
     obj = target_machine.emit_object(binding_module)
 
     llvmlite.binding.shutdown()

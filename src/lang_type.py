@@ -1,3 +1,4 @@
+from ctypes import *
 from llvmlite import ir
 from typing import List
 
@@ -47,6 +48,15 @@ class IntType(Type):
         super().__init__(("i" if is_signed else "u") + str(num_bits))
         self.num_bits = num_bits
         self.is_signed = is_signed
+
+    def to_c_type(self):
+        if self.is_signed:
+            if self.num_bits == 32: return c_int
+            elif self.num_bits == 64: return c_long
+        else:
+            if self.num_bits == 32: return c_uint
+            elif self.num_bits == 64: return c_ulong
+
     def to_llvm_type(self):
         return ir.IntType(self.num_bits)
 

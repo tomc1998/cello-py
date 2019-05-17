@@ -27,7 +27,7 @@ def create_parameter_decl_list(p):
     assert p.is_nterm(NTERM_PARAMETER_DECL_LIST)
     ii = 1
     ret = []
-    while True:
+    while p.tok_val[ii] and not p.tok_val[ii].is_term(")"):
         pdecl = p.tok_val[ii]
         jj = 0
         assert not pdecl.tok_val[jj].is_term("comptime"), "Unimpl"
