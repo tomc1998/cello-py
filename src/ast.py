@@ -100,8 +100,6 @@ class AstFnDeclaration(AstNode):
     def get_type(self, s): return None
 
     def codegen(self, m, s, b):
-        jit.jit_node(self.body, s)
-
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(m, s)
         fnty = internal_fnty.to_llvm_type()
