@@ -345,6 +345,80 @@ def parse_fn_signature(l):
         children.append(parse_expression(l))
     return ParseNode(NTERM_FN_SIGNATURE, children, l.sl())
 
+def parse_member_var_decl(l):
+    children = []
+    assert_type(l, "ident")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, ":")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    ## Bitfield
+    if l.peek() and l.peek()[1] == "{":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        children.push_back(parse_literal())
+        assert_val(l, "}")
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+    ## Defautl val
+    if l.peek() and l.peek()[1] == "=":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        children.append(parse_expression(l))
+    return ParseNode(NTERM_MEMBER_VAR_DECL, children, l.sl())
+
+def parse_struct_field(l):
+    children = []
+    assert_not_empty(l, "Expected struct field, found EOF")
+    if l.peek()[1] == "static":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_not_empty(l, "Expected rest of struct field, found EOF")
+    if l.peek()[1] == "fn":
+        children.append(parse_fn_declaration(l))
+    else: children.append(parse_member_var_decl(l))
+    return ParseNode(NTERM_STRUCT_FIELD, children, l.sl())
+
+def parse_struct_definition(l):
+    children = []
+    assert_val(l, "struct")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "{")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    while l.peek() and l.peek()[1] != "}":
+        children.append(parse_struct_field(l))
+        if l.peek() and l.peek()[1] != "," and l.peek()[1] != "}":
+            raise ParseError(l, "Expected ',' or '}', got '" + l.peek()[1] + "'")
+        elif l.peek() and l.peek()[1] == ",":
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "}")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_STRUCT_DEFINITION, children, l.sl())
+
+
+def parse_type_definition(l):
+    if l.peek()[1] == "comptime":
+        return ParseNode(NTERM_TYPE_DEFINITION, [parse_comptime(l)], l.sl())
+    elif l.peek()[1] == "struct":
+        return ParseNode(NTERM_TYPE_DEFINITION, [parse_struct_definition(l)], l.sl())
+    elif l.peek()[1] == "enum":
+        return ParseNode(NTERM_TYPE_DEFINITION, [parse_enum_definition(l)], l.sl())
+    else:
+        return ParseNode(NTERM_TYPE_DEFINITION, [parse_expression(l)], l.sl())
+
+def parse_type_declaration(l):
+    children = []
+    if l.peek() and l.peek()[1] == "export":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "type")
+    children.append(ParseNode(TERM, l.next(), l.sl()));
+    ## Name
+    children.append(ParseNode(TERM, l.next(), l.sl()));
+    assert_not_empty(l, "Expected rest of type declaration, got EOF");
+    if l.peek()[1] == "<":
+        children.append(parse_template_parameter_decl_list(l))
+    assert_val(l, "=")
+    children.append(ParseNode(TERM, l.next(), l.sl()));
+    children.append(parse_type_definition(l))
+    return ParseNode(NTERM_TYPE_DECLARATION, children, l.sl())
+
+
 def parse_statement(l):
     assert_not_empty(l, "Expected statement, got EOF")
     children = []

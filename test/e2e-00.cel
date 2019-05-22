@@ -10,3 +10,14 @@
 /* } */
 
 fn ret3 = () -> i32 3;
+
+/* type Foo = struct { */
+/*   a: i32, */
+/*   b: i32, */
+/*   fn add = () -> i32 { */
+/*     a + b */
+/*   } */
+/* } */
+
+type int = i32
+fn three = () -> int 3;

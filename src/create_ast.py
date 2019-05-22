@@ -162,10 +162,39 @@ def create_fn_declaration(p):
     body = create_expression(p.tok_val[ii]);
     return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, p.sl)
 
+def create_type_definition(p):
+    assert p.is_nterm(NTERM_TYPE_DEFINITION)
+    if p.tok_val[0].is_nterm(NTERM_EXPRESSION):
+        return create_expression(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_COMPTIME):
+        assert False, "Unimpl"
+    elif p.tok_val[0].is_nterm(NTERM_STRUCT_DEFINITION):
+        assert False, "Unimpl"
+    elif p.tok_val[0].is_nterm(ENUM_DEFINITION):
+        assert False, "Unimpl"
+
+def create_type_declaration(p):
+    assert p.is_nterm(NTERM_TYPE_DECLARATION)
+    ii = 0
+    is_export = False
+    if p.tok_val[ii].is_term("export"):
+        is_export = True
+        ii += 1
+    assert p.tok_val[ii].is_term("type")
+    ii += 1
+    typename = p.tok_val[ii].tok_val[1]
+    ii += 1
+    assert p.tok_val[ii].is_term("=")
+    ii += 1
+    definition = create_type_definition(p.tok_val[ii])
+    return AstTypeDeclaration(typename, definition, is_export=is_export)
+
 def create_statement(p):
     assert p.is_nterm(NTERM_STATEMENT)
     if p.tok_val[0].is_nterm(NTERM_FN_DECLARATION):
         return create_fn_declaration(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_TYPE_DECLARATION):
+        return create_type_declaration(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_EXPRESSION):
         return create_expression(p.tok_val[0])
     assert False

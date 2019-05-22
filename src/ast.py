@@ -70,6 +70,14 @@ class AstIf(AstNode):
         else:
             return None
 
+class AstTypeDeclaration(AstNode):
+    def __init__(self, name, definition, is_export=False):
+        self.name = name
+        self.definition = definition
+        self.is_export = is_export
+    def codegen(self, m, s, b, exp_ty=None):
+        s.set(self.name, Var(self.definition.get_type(s)))
+
 ## Execute some code if the given condition is true
 class AstConditional(AstNode):
     def __init__(self, cond, body, decoration):
