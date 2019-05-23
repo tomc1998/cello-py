@@ -162,6 +162,49 @@ def create_fn_declaration(p):
     body = create_expression(p.tok_val[ii]);
     return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, p.sl)
 
+# Converts to lang_type.StructField (or a memmber function, but that's unimpl)
+def create_struct_field(p):
+    assert p.is_nterm(NTERM_STRUCT_FIELD)
+    ii = 0
+    is_static = False
+    if p.tok_val[ii].is_term("static"):
+        is_static = True
+        ii += 1
+    if p.tok_val[ii].is_nterm(NTERM_MEMBER_VAR_DECL):
+        var = p.tok_val[ii]
+        jj = 0
+        field_name = var.tok_val[jj].tok_val[0].tok_val[1]
+        jj += 1
+        assert var.tok_val[jj].is_term(":")
+        jj += 1
+        field_type = create_expression(var.tok_val[jj])
+        jj += 1
+        if jj < len(var.tok_val) and var.tok_val[jj] == "{":
+            assert False, "Unimpl bitfield"
+        if jj < len(var.tok_val) and var.tok_val[jj] == "=":
+            assert False, "Unimpl default value"
+        return StructField(field_name, field_type)
+    elif p.tok_val[ii].is_nterm(NTERM_FN_DECLARATION):
+        print ("Unimpl member fn")
+        return None
+    else:
+        assert False
+
+def create_struct_definition(p):
+    assert p.is_nterm(NTERM_STRUCT_DEFINITION)
+    ii = 0
+    assert p.tok_val[ii].is_term("struct")
+    ii += 1
+    assert p.tok_val[ii].is_term("{")
+    ii += 1
+    fields = []
+    while not p.tok_val[ii].is_term("}"):
+        assert p.tok_val[ii].is_nterm(NTERM_STRUCT_FIELD)
+        f = create_struct_field(p.tok_val[ii])
+        if f: fields.append(f)
+        ii += 1
+        while p.tok_val[ii].is_term(","): ii += 1
+
 def create_type_definition(p):
     assert p.is_nterm(NTERM_TYPE_DEFINITION)
     if p.tok_val[0].is_nterm(NTERM_EXPRESSION):
@@ -169,7 +212,7 @@ def create_type_definition(p):
     elif p.tok_val[0].is_nterm(NTERM_COMPTIME):
         assert False, "Unimpl"
     elif p.tok_val[0].is_nterm(NTERM_STRUCT_DEFINITION):
-        assert False, "Unimpl"
+        return create_struct_definition(p.tok_val[0])
     elif p.tok_val[0].is_nterm(ENUM_DEFINITION):
         assert False, "Unimpl"
 

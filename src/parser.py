@@ -348,7 +348,7 @@ def parse_fn_signature(l):
 def parse_member_var_decl(l):
     children = []
     assert_type(l, "ident")
-    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_identifier(l))
     assert_val(l, ":")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     children.append(parse_expression(l))
