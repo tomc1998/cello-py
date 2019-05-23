@@ -183,7 +183,7 @@ def create_struct_field(p):
             assert False, "Unimpl bitfield"
         if jj < len(var.tok_val) and var.tok_val[jj] == "=":
             assert False, "Unimpl default value"
-        return StructField(field_name, field_type)
+        return AstStructMemberVar(field_name, field_type)
     elif p.tok_val[ii].is_nterm(NTERM_FN_DECLARATION):
         print ("Unimpl member fn")
         return None
@@ -204,6 +204,8 @@ def create_struct_definition(p):
         if f: fields.append(f)
         ii += 1
         while p.tok_val[ii].is_term(","): ii += 1
+
+    return AstStructDefinition(fields)
 
 def create_type_definition(p):
     assert p.is_nterm(NTERM_TYPE_DEFINITION)

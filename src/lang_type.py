@@ -38,9 +38,8 @@ class StructData:
         return ret + " }"
 
 class StructType(Type):
-    def __init__(self, name, data: StructData):
-        super().__init__(name + data.human_readable_name())
-        self.name = name
+    def __init__(self, data: StructData):
+        super().__init__(data.human_readable_name())
         self.data = data
 
 class IntType(Type):

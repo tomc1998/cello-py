@@ -64,7 +64,6 @@ class AstIf(AstNode):
         if self.fallback:
             phi = b.phi(ty, name="if-chain-result")
             for (val, block) in incoming:
-                print(block.name)
                 phi.add_incoming(val, block)
             return gen_coercion(b, phi, self.get_type(s), exp_ty)
         else:
@@ -76,17 +75,16 @@ class AstStructMemberVar(AstNode):
         self.type_expr = type_expr
 
     def get_type(self, s):
-        return self.type_expr.get_type(s)
+        return StructField(self.name, self.type_expr.get_type(s))
 
 # A struct declaration, returns the struct when evaluated with get_type
-class AstStructDeclaration(AstNode):
-    def __init__(self, name, fields):
-        self.name = name
+class AstStructDefinition(AstNode):
+    def __init__(self, fields):
         self.fields = fields
 
     def get_type(self, s):
-        resolved_fields = map(fields, lambda x: x.get_type(s))
-        return StructType(self.name, StructData(resolved_fields))
+        resolved_fields = list(map(lambda x: x.get_type(s), self.fields))
+        return StructType(StructData(resolved_fields))
 
 class AstTypeDeclaration(AstNode):
     def __init__(self, name, definition, is_export=False):
