@@ -3,17 +3,23 @@ from llvmlite import ir
 from typing import List
 import copy
 
+class PtrType:
+    def __init__(self, val):
+        self.val = val
+    def to_llvm_type(self):
+        return self.val.to_llvm_type().as_pointer()
+
+    def eq(self, other):
+        if not isinstance(other, PtrType): return False
+        return self.val.eq(other.val)
+
 class Type:
     ## @param num_ptr - Levels of indirection
-    def __init__(self, name, num_ptr=0):
-        self.num_ptr = num_ptr
+    def __init__(self, name):
         self.name = name
 
     ## Returns a copy of this type, but with an additional level of indirection
-    def ptr(self):
-        ret = copy.deepcopy(self)
-        ret.num_ptr += 1
-        return ret
+    def ptr(self): return PtrType(self)
 
 class KindType(Type):
     ## @param val - A reference to the type this references
@@ -50,6 +56,17 @@ class StructType(Type):
     def __init__(self, data: StructData):
         super().__init__(data.human_readable_name())
         self.data = data
+
+    def eq(self, other):
+        if not isinstance(other, StructType): return False
+        if len(self.data.fields) != len(other.data.fields): return False
+        # Compare by field
+        for ii in range(len(self.data.fields)):
+            if not self.data.fields[ii].field_type.eq(other.data.fields[ii].field_type): return False
+        return True
+
+    def to_llvm_type(self):
+        return ir.LiteralStructType(list(map(lambda x : x.field_type.to_llvm_type(), self.data.fields)))
 
 class IntType(Type):
     def __init__(self, num_bits: int, is_signed: bool):

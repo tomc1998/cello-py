@@ -75,7 +75,7 @@ class AstStructMemberVar(AstNode):
         self.type_expr = type_expr
 
     def get_type(self, s):
-        return StructField(self.name, self.type_expr.get_type(s))
+        return StructField(self.name, self.type_expr.get_type(s).val)
 
 # A struct declaration, returns the struct when evaluated with get_type
 class AstStructDefinition(AstNode):
@@ -161,7 +161,7 @@ class AstFnSignature(AstNode):
         args = [pdecl.type_ident.resolve(s) for pdecl in self.parameter_decl_list]
         return FunctionType(ret, args)
 
-class AstFunctionCall(AstNode):
+class AstFnCall(AstNode):
     def __init__(self, name, template_params, param_list, decoration):
         super().__init__(decoration)
         assert not template_params, "Template params not implemented"
@@ -227,7 +227,7 @@ class Resolveable(AstNode):
         self.parse_node = p
     # @param s - scope
     def resolve(self, s):
-        if n.is_nterm(NTERM_IDENTIFIER):
+        if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
             return s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1])
         else:
             assert False, "Can't resolve type " + self.parse_node.to_string()
@@ -235,22 +235,16 @@ class Resolveable(AstNode):
 class TypeIdent(Resolveable):
     ## Return the LLVM value for this type.
     def resolve(self, s):
-        if self.resolved: return self.resolved
         assert self.parse_node.is_nterm(NTERM_EXPRESSION)
         if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
-            self.resolve
-            resolved = Resolveable(self.parse_node, self.decoration).resolve(s)
-            assert isinstance(resolved.var_type, KindType)
-            self.resolved = resolved
-            return self.resolved
+            resolved = s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1]).var_type.val
+            return resolved
         elif self.parse_node.tok_val[0].is_nterm(NTERM_OP) and \
              self.parse_node.tok_val[0].tok_val[0].is_term("&"):
             ## Pointer type
-            resolved
-        ## First, resolve us
-        resolved = super().resolve(s)
-        ## Now convert that to an LLVM type, assuming resolved is actually a type (?)
-        return self.resolved.var_type.val
+            assert self.parse_node.tok_val[1].tok_val[0].is_nterm(NTERM_IDENTIFIER)
+            resolved = s.lookup(self.parse_node.tok_val[1].tok_val[0].tok_val[0].tok_val[1]).var_type.val
+            return resolved.ptr()
 
 class VarIdent(Resolveable):
     def get_type(self, s):

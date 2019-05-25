@@ -116,7 +116,7 @@ def create_function_call(p):
 
     assert not template_params, "Template params not implemented"
     param_list = create_parameter_list(p.tok_val[ii])
-    return AstFunctionCall(function_name, template_params, param_list, p.sl)
+    return AstFnCall(function_name, template_params, param_list, p.sl)
 
 def create_literal(p):
     assert p.is_nterm(NTERM_LITERAL)
