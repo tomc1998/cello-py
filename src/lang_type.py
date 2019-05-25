@@ -1,10 +1,19 @@
 from ctypes import *
 from llvmlite import ir
 from typing import List
+import copy
 
 class Type:
-    def __init__(self, name):
+    ## @param num_ptr - Levels of indirection
+    def __init__(self, name, num_ptr=0):
+        self.num_ptr = num_ptr
         self.name = name
+
+    ## Returns a copy of this type, but with an additional level of indirection
+    def ptr(self):
+        ret = copy.deepcopy(self)
+        ret.num_ptr += 1
+        return ret
 
 class KindType(Type):
     ## @param val - A reference to the type this references

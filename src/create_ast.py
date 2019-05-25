@@ -106,7 +106,7 @@ def create_parameter_list(p):
 def create_function_call(p):
     assert p.is_nterm(NTERM_FUNCTION_CALL)
     assert p.tok_val[0].tok_val[0].is_nterm(NTERM_IDENTIFIER), "Function call where function name isn't ident unimpl"
-    function_name = FuncIdent(p.tok_val[0], p.sl)
+    function_name = Resolveable(p.tok_val[0], p.sl)
     template_params = None
     ii = 1
     if p.tok_val[ii].is_term("::"):

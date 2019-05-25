@@ -84,7 +84,7 @@ class AstStructDefinition(AstNode):
 
     def get_type(self, s):
         resolved_fields = list(map(lambda x: x.get_type(s), self.fields))
-        return StructType(StructData(resolved_fields))
+        return KindType(StructType(StructData(resolved_fields)))
 
 class AstTypeDeclaration(AstNode):
     def __init__(self, name, definition, is_export=False):
@@ -218,36 +218,39 @@ class ParameterDecl(AstNode):
         self.name = name
         self.type_ident = type_ident
 
+## Resolveable expr, ident or qualified ident
 class Resolveable(AstNode):
     def __init__(self, p, decoration):
         super().__init__(decoration)
         assert p.is_nterm(NTERM_EXPRESSION)
-        # If not none, this type has already been resolved (looked up)
-        self.resolved = None
         # The parse node for this type ident.
         self.parse_node = p
-    # Resolve this type, and return the resolved type, or none if not found.
-    # If this has already resolved, just return the old result.
     # @param s - scope
     def resolve(self, s):
-        if self.resolved: return self.resolved
-        n = self.parse_node.tok_val[0]
         if n.is_nterm(NTERM_IDENTIFIER):
-            self.resolved = s.lookup(n.tok_val[0].tok_val[1])
+            return s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1])
         else:
-            assertFalse, "Can't resolve type " + self.parse_node.to_string()
-        return self.resolved
+            assert False, "Can't resolve type " + self.parse_node.to_string()
 
 class TypeIdent(Resolveable):
     ## Return the LLVM value for this type.
     def resolve(self, s):
+        if self.resolved: return self.resolved
+        assert self.parse_node.is_nterm(NTERM_EXPRESSION)
+        if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
+            self.resolve
+            resolved = Resolveable(self.parse_node, self.decoration).resolve(s)
+            assert isinstance(resolved.var_type, KindType)
+            self.resolved = resolved
+            return self.resolved
+        elif self.parse_node.tok_val[0].is_nterm(NTERM_OP) and \
+             self.parse_node.tok_val[0].tok_val[0].is_term("&"):
+            ## Pointer type
+            resolved
         ## First, resolve us
         resolved = super().resolve(s)
         ## Now convert that to an LLVM type, assuming resolved is actually a type (?)
-        assert isinstance(resolved.var_type, KindType)
         return self.resolved.var_type.val
-
-class FuncIdent(Resolveable): pass
 
 class VarIdent(Resolveable):
     def get_type(self, s):
