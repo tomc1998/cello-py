@@ -246,7 +246,7 @@ class AstQualifiedNameAddition:
         if self.is_static:
             raise NotImplementedError
         else:
-            if isinstance(curr.var_type, PtrType) and self.name == "*":
+            if isinstance(curr.var_type, PtrType):
                 ## Load from the pointer (this is prbably an alloca, so we're
                 ## actually just loading a pointer, but we're treating
                 ## everything as an alloca anyway so this'll (probably) get
@@ -258,6 +258,28 @@ class AstQualifiedNameAddition:
                 clone = curr.clone()
                 clone.var_type = new_type
                 clone.val = val
+                ## If we're just the '*' field, return now, since we're only
+                ## dereferencing - otherwise, gep into the struct too (since we
+                ## auto deref pointers when accessing struct fields).
+                if self.name == "*": return clone
+                return self.apply(m, s, b, clone)
+            elif isinstance(curr.var_type, StructType):
+                ## Create a GEP - find the offset of the field
+                ix = None
+                new_type = None
+                print(curr.var_type.data.fields)
+                for ii, f in enumerate(curr.var_type.data.fields):
+                    print(self.name, f.field_name)
+                    if f.field_name == self.name:
+                        new_type = f.field_type
+                        ix = ii
+                        break
+                assert ix != None
+                assert new_type
+                ## Now create the gep , the var, & return
+                clone = curr.clone()
+                clone.var_type = new_type
+                clone.val = b.gep(curr.val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ix)])
                 return clone
 
 class AstQualifiedName(AstNode):
