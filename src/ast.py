@@ -223,13 +223,15 @@ class ParameterDecl(AstNode):
 class Resolveable(AstNode):
     def __init__(self, p, decoration):
         super().__init__(decoration)
-        assert p.is_nterm(NTERM_EXPRESSION)
+        assert p.is_nterm(NTERM_EXPRESSION) or p.is_nterm(NTERM_IDENTIFIER)
         # The parse node for this type ident.
         self.parse_node = p
     # @param s - scope
     def resolve(self, s):
-        if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
-            return s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1])
+        p = self.parse_node
+        while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
+        if p.is_nterm(NTERM_IDENTIFIER):
+            return s.lookup(p.tok_val[0].tok_val[1])
         else:
             assert False, "Can't resolve type " + self.parse_node.to_string()
 
@@ -240,6 +242,26 @@ class AstQualifiedNameAddition:
     def __init__(self, is_static, name):
         self.is_static = is_static
         self.name = name
+
+    ## Given a type, get the type resulting from the application of this addition
+    def get_type_after_apply(self, s, var_type):
+        if self.is_static:
+            raise NotImplementedError
+        else:
+            if isinstance(var_type, PtrType):
+                if self.name == "*": return var_type.val
+                else: return self.get_type_after_apply(s, var_type.val)
+            elif isinstance(var_type, StructType):
+                ## Create a GEP - find the offset of the field
+                ret = None
+                print(var_type.data.fields)
+                for ii, f in enumerate(var_type.data.fields):
+                    print(self.name, f.field_name)
+                    if f.field_name == self.name:
+                        ret = f.field_type
+                        break
+                assert ret
+                return ret
 
     ## APply this name addition to the given Var, returning another var
     def apply(self, m, s, b, curr: Var) -> Var:
@@ -287,6 +309,15 @@ class AstQualifiedName(AstNode):
         super().__init__(decoration)
         self.base_name = base_name
         self.additions = additions
+
+    ## Codegen as a variable
+    def get_type(self, s):
+        ret = self.base_name.resolve(s).var_type
+        ## Loop and apply additions - each addition returns another Var
+        for i, a in enumerate(self.additions):
+            ret = a.get_type_after_apply(s, ret)
+        return ret
+
     ## Codegen as a variable
     def codegen(self, m, s, b, exp_ty=None, lval=False):
         ret = self.base_name.resolve(s)
@@ -296,7 +327,6 @@ class AstQualifiedName(AstNode):
         ## Get the LLVM value + type for this var
         ret_type = ret.var_type
         ret = ret.val
-
         if not lval:
             ret = b.load(ret)
         return gen_coercion(b, ret, ret_type, exp_ty)
@@ -304,7 +334,10 @@ class AstQualifiedName(AstNode):
 class TypeIdent(Resolveable):
     ## Return the LLVM value for this type.
     def resolve(self, s):
-        assert self.parse_node.is_nterm(NTERM_EXPRESSION)
+        assert self.parse_node.is_nterm(NTERM_EXPRESSION) or self.pares_node.is_nterm(NTERM_IDENTIFIER)
+        if self.parse_node.is_nterm(NTERM_IDENTIFIER):
+            resolved = s.lookup(self.parse_node.tok_val[0].tok_val[1]).var_type.val
+            return resolved
         if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
             resolved = s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1]).var_type.val
             return resolved

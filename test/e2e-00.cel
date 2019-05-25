@@ -28,3 +28,5 @@ fn get_foo_ptr = (f: &Foo) -> &Foo f
 fn deref = (a: &i32) -> i32 a.*
 
 fn get_foo_a = (f: &Foo) -> i32 f.a
+
+fn add_foo = (f: &Foo) -> i32 f.a + f.b

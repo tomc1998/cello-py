@@ -143,23 +143,23 @@ def create_qualified_name(p):
     return AstQualifiedName(base_name, additions, p.sl)
 
 def create_expression(p):
-    assert p.is_nterm(NTERM_EXPRESSION)
-    if p.tok_val[0].is_nterm(NTERM_IDENTIFIER):
+    while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
+    if p.is_nterm(NTERM_IDENTIFIER):
         return VarIdent(p, p.sl)
-    elif p.tok_val[0].is_nterm(NTERM_BINARY_EXPRESSION):
-        return create_binary_expression(p.tok_val[0])
-    elif p.tok_val[0].is_nterm(NTERM_IF):
-        return create_if(p.tok_val[0])
-    elif p.tok_val[0].is_nterm(NTERM_FUNCTION_CALL):
-        return create_function_call(p.tok_val[0])
-    elif p.tok_val[0].is_nterm(NTERM_STATEMENT_LIST):
-        return create_statement_list(p.tok_val[0])
-    elif p.tok_val[0].is_nterm(NTERM_LITERAL):
-        return create_literal(p.tok_val[0])
-    elif p.tok_val[0].is_nterm(NTERM_QUALIFIED_NAME):
-        return create_qualified_name(p.tok_val[0])
+    elif p.is_nterm(NTERM_BINARY_EXPRESSION):
+        return create_binary_expression(p)
+    elif p.is_nterm(NTERM_IF):
+        return create_if(p)
+    elif p.is_nterm(NTERM_FUNCTION_CALL):
+        return create_function_call(p)
+    elif p.is_nterm(NTERM_STATEMENT_LIST):
+        return create_statement_list(p)
+    elif p.is_nterm(NTERM_LITERAL):
+        return create_literal(p)
+    elif p.is_nterm(NTERM_QUALIFIED_NAME):
+        return create_qualified_name(p)
     else:
-        assert False, "Unimpl creating expr from " + p.tok_val[0].tok_type
+        assert False, "Unimpl creating expr from " + p.tok_type
 
 
 def create_fn_declaration(p):
