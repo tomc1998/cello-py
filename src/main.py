@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import sys
 import llvmlite
 import llvmlite.binding
 from llvmlite import ir
@@ -57,3 +58,4 @@ try:
     f.close()
 except parser.ParseError as err:
     print("ERROR: " + err.sl.to_str() + " - " + str(err))
+    sys.exit(1)

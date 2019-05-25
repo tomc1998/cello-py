@@ -79,8 +79,6 @@ ParameterDecl ::= [ "comptime" ] Identifier ":" Expression | [ "comptime" ] Expr
 ParameterList ::= "(" ( Expression [","] ) * ")"
 TemplateParameterList ::= "<" ( Expression [","] ) * ">"
 
-// TODO Solve this, should be Expression :: Ident :: Ident ... but this is left
-// recursive
 QualifiedName ::= Expression
   | Expression "::" QualifiedName
   | Expression "." QualifiedName

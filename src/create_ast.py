@@ -126,6 +126,22 @@ def create_literal(p):
     else:
         assert False, "Unimpl lit type: '" + tok[0] + "'"
 
+def create_qualified_name(p):
+    assert p.is_nterm(NTERM_QUALIFIED_NAME)
+    assert (len(p.tok_val) % 2) == 1
+    additions = []
+    base_name = create_expression(p.tok_val[0])
+    ii = 1
+    while ii < len(p.tok_val):
+        is_static = False
+        if p.tok_val[ii].tok_val[1] == "::":
+            is_static == True
+        else: assert p.tok_val[ii].tok_val[1] == "."
+        name = p.tok_val[ii+1].tok_val[0].tok_val[1]
+        additions.append(AstQualifiedNameAddition(is_static, name))
+        ii += 2
+    return AstQualifiedName(base_name, additions, p.sl)
+
 def create_expression(p):
     assert p.is_nterm(NTERM_EXPRESSION)
     if p.tok_val[0].is_nterm(NTERM_IDENTIFIER):
@@ -140,6 +156,8 @@ def create_expression(p):
         return create_statement_list(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_LITERAL):
         return create_literal(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_QUALIFIED_NAME):
+        return create_qualified_name(p.tok_val[0])
     else:
         assert False, "Unimpl creating expr from " + p.tok_val[0].tok_type
 

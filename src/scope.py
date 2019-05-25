@@ -1,3 +1,4 @@
+import copy
 class Var:
     ## @param var_type - See the 'lang_type' module
     ## @param val - The LLVM value that represents this variable. None if this is a kind.
@@ -8,6 +9,9 @@ class Var:
         self.is_comptime = is_comptime
         self.is_mutable = is_mutable
         self.is_member = is_member
+
+    def clone(self):
+        return copy.deepcopy(self)
 
 ## Class for managing scope.
 class Scope:

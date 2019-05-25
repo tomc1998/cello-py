@@ -202,6 +202,16 @@ def parse_function_call(l, lrec=None):
     children.append(parse_parameter_list(l));
     return ParseNode(NTERM_FUNCTION_CALL, children, l.sl())
 
+def parse_qualified_name(l, lrec=None):
+    children = [lrec]
+    while l.peek() and (l.peek()[1] == "::" or l.peek()[1] == ".") and \
+          (l.peek(1)[0] == "ident" or l.peek(1)[0] == "int_lit" or l.peek(1)[0] == "op"):
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        if l.peek() and l.peek()[0] == "int_lit": children.append(parse_literal(l))
+        elif l.peek() and l.peek()[0] == "ident": children.append(parse_identifier(l))
+        else: children.append(parse_op(l))
+    return ParseNode(NTERM_QUALIFIED_NAME, children, l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")
@@ -264,8 +274,9 @@ def parse_expression(l, no_right_angle=False):
         if not l.peek():
             break
         elif ((l.peek()[1] == "." or l.peek()[1] == "::") and l.peek(1)
-                and (l.peek(1)[0] == "ident"
-                    or l.peek(1)[0] == "int_lit")):
+                and (l.peek(1)[0] == "ident" or
+                     l.peek(1)[0] == "int_lit" or
+                     l.peek(1)[0] == "op")):
             lrec = parse_qualified_name(l, lrec)
         elif l.peek()[1] == "(":
             lrec = parse_function_call(l, lrec)

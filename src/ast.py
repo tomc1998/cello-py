@@ -1,4 +1,5 @@
 from llvmlite import ir
+from typing import List
 from parser import *
 from lang_type import *
 from scope import Var
@@ -231,6 +232,52 @@ class Resolveable(AstNode):
             return s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1])
         else:
             assert False, "Can't resolve type " + self.parse_node.to_string()
+
+## Pair of (bool, str). the bool indicates whether this is a static access
+## ('::') or dotted access ('.'). The str indicates the field name. For
+## example, 'a.*' would have 1 addition of (False, "*")
+class AstQualifiedNameAddition:
+    def __init__(self, is_static, name):
+        self.is_static = is_static
+        self.name = name
+
+    ## APply this name addition to the given Var, returning another var
+    def apply(self, m, s, b, curr: Var) -> Var:
+        if self.is_static:
+            raise NotImplementedError
+        else:
+            if isinstance(curr.var_type, PtrType) and self.name == "*":
+                ## Load from the pointer (this is prbably an alloca, so we're
+                ## actually just loading a pointer, but we're treating
+                ## everything as an alloca anyway so this'll (probably) get
+                ## dereferenced in a later step)
+                val = b.load(curr.val)
+                ## Figure out the new type
+                new_type = curr.var_type.val
+                ## Create a new var & ret
+                clone = curr.clone()
+                clone.var_type = new_type
+                clone.val = val
+                return clone
+
+class AstQualifiedName(AstNode):
+    def __init__(self, base_name: Resolveable, additions: List[AstQualifiedNameAddition], decoration):
+        super().__init__(decoration)
+        self.base_name = base_name
+        self.additions = additions
+    ## Codegen as a variable
+    def codegen(self, m, s, b, exp_ty=None, lval=False):
+        ret = self.base_name.resolve(s)
+        ## Loop and apply additions - each addition returns another Var
+        for i, a in enumerate(self.additions):
+            ret = a.apply(m, s, b, ret)
+        ## Get the LLVM value + type for this var
+        ret_type = ret.var_type
+        ret = ret.val
+
+        if not lval:
+            ret = b.load(ret)
+        return gen_coercion(b, ret, ret_type, exp_ty)
 
 class TypeIdent(Resolveable):
     ## Return the LLVM value for this type.
