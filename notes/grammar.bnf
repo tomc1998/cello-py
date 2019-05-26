@@ -10,6 +10,7 @@ StatementList ::= "{" ( Statement [ ";" ] ) * "}"
 Statement ::= VarDeclaration
   | TypeDeclaration
   | FnDeclaration
+  | FnInstantiation
   | ExternFnDeclaration
   | Expression
   | ComptimeForLoop
@@ -44,6 +45,8 @@ VarDeclaration ::= [ "export" ] [ "comptime" ] "var" Identifier [ ":" Expression
   
 FnDeclaration ::=
   [ "export" ] "fn" Identifier [ TemplateParameterDeclList ] "=" FnSignature Expression
+
+FnInstantiation ::= "instantiate" Identifier TemplateParameterList
 
 ExternFnDeclaration ::=
   "extern" "fn" Identifier "=" FnSignature

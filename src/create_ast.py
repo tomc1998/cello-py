@@ -132,7 +132,6 @@ def create_function_call(p):
         assert p.tok_val[0].is_nterm(NTERM_QUALIFIED_TYPE)
         function_name = Resolveable(p.tok_val[0].tok_val[0], p.sl)
         template_params = create_template_parameter_list(p.tok_val[0].tok_val[2])
-        print(template_params)
 
     param_list = create_parameter_list(p.tok_val[1])
     return AstFnCall(function_name, template_params, param_list, p.sl)
@@ -307,10 +306,16 @@ def create_type_declaration(p):
     definition = create_type_definition(p.tok_val[ii])
     return AstTypeDeclaration(typename, definition, is_export=is_export)
 
+def create_fn_instantiation(p):
+    assert p.is_nterm(NTERM_FN_INSTANTIATION)
+    return AstFnInstantiation(p.tok_val[1].term(), create_template_parameter_list(p.tok_val[2]))
+
 def create_statement(p):
     assert p.is_nterm(NTERM_STATEMENT)
     if p.tok_val[0].is_nterm(NTERM_FN_DECLARATION):
         return create_fn_declaration(p.tok_val[0])
+    if p.tok_val[0].is_nterm(NTERM_FN_INSTANTIATION):
+        return create_fn_instantiation(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_TYPE_DECLARATION):
         return create_type_declaration(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_EXPRESSION):

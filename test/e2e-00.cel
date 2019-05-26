@@ -30,3 +30,8 @@ fn add_generic<T: $type> = (a:T, b:T) -> T a + b;
 fn add_i32 = (a: i32, b: i32) -> i32 add_generic::<i32>(a, b)
 
 fn add_3_numbers = (a: i32, b: i32, c: i32) -> i32 add_i32(add_i32(a, b), c)
+
+fn deref<T: $type> = (a: &T) -> T a.*
+
+instantiate deref<i32>
+instantiate deref<Foo>

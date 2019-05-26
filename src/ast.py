@@ -152,7 +152,7 @@ class AstFnDeclaration(AstNode):
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(s)
         ## Mangle the func name
-        mangled = mangle_function(self.fn_name, internal_fnty.args, type_parameters)
+        mangled = mangle_function(self.fn_name, list(map(lambda x: x.val, type_parameters)), internal_fnty.args)
 
         ## Check if we have an instantiation cached
         if mangled in self.instantiated: return self.instantiated[mangled]
@@ -207,6 +207,20 @@ class AstFnSignature(AstNode):
         args = [pdecl.type_ident.resolve(s) for pdecl in self.parameter_decl_list]
         return FunctionType(ret, args)
 
+class AstFnInstantiation(AstNode):
+    def __init__(self, name, template_params):
+        self.name = name
+        self.template_params = template_params
+
+    def get_type(self, s): return None
+
+    def codegen(self, m, s, b):
+        resolved = s.lookup(self.name)
+        template_parameters = []
+        if self.template_params:
+            template_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+        resolved.var_type.fn_declaration.instantiate(m, s, b, template_parameters)
+
 class AstFnCall(AstNode):
     def __init__(self, name, template_params, param_list, decoration):
         super().__init__(decoration)
@@ -251,7 +265,6 @@ class AstFnCall(AstNode):
     def codegen(self, m, s, b, exp_ty=None):
         # Find function
         fn = self.find_function(s)
-        print(self.name.parse_node.tok_val[0].tok_val[0].tok_val, fn)
         if isinstance(fn.var_type, UninstantiatedFunction):
             ## Instantiate this type first. Figure out type params.
             ## No type inference for now - just codegen it all

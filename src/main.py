@@ -34,7 +34,7 @@ try:
     module = ir.Module(name="main")
     codegen = ast.codegen(module, scope, None)
 
-    print(codegen)
+    ##print(codegen)
     print(module)
 
     # Create final obj file with the module

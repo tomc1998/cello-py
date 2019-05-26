@@ -7,6 +7,7 @@ NTERM_STATEMENT = 'STATEMENT'
 NTERM_EXPRESSION = 'EXPRESSION'
 NTERM_VAR_DECLARATION = 'VAR_DECLARATION'
 NTERM_FN_DECLARATION = 'FN_DECLARATION'
+NTERM_FN_INSTANTIATION = 'FN_INSTANTIATION'
 NTERM_EXTERN_FN_DECLARATION = 'EXTERN_FN_DECLARATION'
 NTERM_FN_SIGNATURE = 'FN_SIGNATURE'
 NTERM_FN_TYPE = 'FN_TYPE'
@@ -55,6 +56,13 @@ class ParseNode:
         self.tok_type = tok_type
         self.tok_val = tok_val
         self.sl = sl
+
+    # Digs down & extracts a term, assuming this is a tree where each node has only 1 child
+    def term(self):
+        assert(self.tok_type == TERM or len(self.tok_val) == 1)
+        if self.tok_type == TERM:
+            return self.tok_val[1]
+        else: return self.tok_val[0].term()
 
     def to_string(self):
         if self.tok_type == TERM: return self.tok_val[1]
@@ -438,6 +446,13 @@ def parse_type_declaration(l):
     children.append(parse_type_definition(l))
     return ParseNode(NTERM_TYPE_DECLARATION, children, l.sl())
 
+def parse_fn_instantiation(l):
+    children = []
+    assert_val(l, "instantiate")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_identifier(l))
+    children.append(parse_template_parameter_list(l))
+    return ParseNode(NTERM_FN_INSTANTIATION, children, l.sl())
 
 def parse_statement(l):
     assert_not_empty(l, "Expected statement, got EOF")
@@ -454,6 +469,8 @@ def parse_statement(l):
     else:
         if l.peek()[1] == "var" or l.peek()[1] == "mut":
             children.append(parse_var_declaration(l))
+        elif l.peek()[1] == "instantiate":
+            children.append(parse_fn_instantiation(l))
         elif l.peek()[1] == "type":
             children.append(parse_type_declaration(l))
         elif l.peek()[1] == "fn":
