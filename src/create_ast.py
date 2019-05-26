@@ -166,6 +166,10 @@ def create_assignment(p):
     val = create_expression(p.tok_val[2])
     return AstAssignment(var, val, p.sl)
 
+def create_comptime(p):
+    assert p.is_nterm(NTERM_COMPTIME)
+    return AstComptime(create_statement_list(p.tok_val[1]), p.sl)
+
 def create_expression(p):
     while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
     if p.is_nterm(NTERM_IDENTIFIER):
@@ -184,6 +188,8 @@ def create_expression(p):
         return create_qualified_name(p)
     elif p.is_nterm(NTERM_ASSIGNMENT):
         return create_assignment(p)
+    elif p.is_nterm(NTERM_COMPTIME):
+        return create_comptime(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 

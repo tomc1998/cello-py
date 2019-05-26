@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+from time import time
 import sys
 import llvmlite
 import llvmlite.binding
@@ -24,6 +25,8 @@ for line in f: buf += line
 
 ## Pass the tokens into the parser, get a parse tree
 try:
+    start = time()
+
     parse_tree = parser.parse(lexer.TokenStream(buf))
 
     ast = create_ast.create_ast(parse_tree)
@@ -49,6 +52,12 @@ try:
 
     # Emit the obj to some buffer
     obj = target_machine.emit_object(binding_module)
+
+    end = time()
+
+    print("---")
+    print("Time taken: ", end - start)
+    print("---\n")
 
     llvmlite.binding.shutdown()
 

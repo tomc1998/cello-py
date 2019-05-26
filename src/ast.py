@@ -124,6 +124,16 @@ class AstConditional(AstNode):
         b.position_at_start(false_block)
         return (gen_coercion(b, true_val, self.body.get_type(s), exp_ty), true_block)
 
+class AstComptime(AstNode):
+    def __init__(self, body, decoration):
+        super().__init__(decoration)
+        self.body = body
+    def codegen(self, m, s, b, exp_ty=None):
+        subscope = s.subscope();
+        ty = self.body.get_type(s)
+        jit_val = jit.jit_node(self.body, ty, subscope)
+        return gen_coercion(b, jit_val, ty, exp_ty)
+
 class AstFnDeclaration(AstNode):
     def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body, decoration):
         super().__init__(decoration)

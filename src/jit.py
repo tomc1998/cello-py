@@ -1,6 +1,7 @@
 from ctypes import CFUNCTYPE
 import llvmlite.binding as llvm
 from llvmlite import ir
+import jit_result
 
 ## LLVM JIT engine
 jit = None
@@ -22,7 +23,7 @@ def init_jit():
 
 ## Given a node 'n', jit it and return the result of the expression as an LLVM
 ## value (probably a constant, need to think about this though).
-def jit_node(n, scope):
+def jit_node(n, ty, scope):
     global jit
     assert jit, "JIT not initialized"
     ## Create the IR module, gen the module
@@ -48,7 +49,10 @@ def jit_node(n, scope):
     ## Get the main function
     entry_fn_ptr = jit.get_function_address("__jit_entry")
     entry_fn = CFUNCTYPE(restype=internal_ret_ty.to_c_type())(entry_fn_ptr)
+    res = entry_fn()
 
-    print("JIT RESULT = " + str(entry_fn()))
+    print("JIT RESULT = " + str(res))
 
     jit.remove_module(binding_module)
+
+    return jit_result.to_llvm_constant(res, ty)

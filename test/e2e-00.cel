@@ -25,6 +25,8 @@ fn clone_foo = (foo: &Foo, target: &Foo) {
   target.b = foo.b;
 }
 
+fn eight = () -> i32 comptime { 3 + 5 }
+
 fn add_generic<T: $type> = (a:T, b:T) -> T a + b;
 
 fn add_i32 = (a: i32, b: i32) -> i32 add_generic::<i32>(a, b)

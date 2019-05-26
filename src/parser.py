@@ -227,6 +227,10 @@ def parse_assignment(l, lrec=None):
     children.append(parse_expression(l))
     return ParseNode(NTERM_ASSIGNMENT, children, l.sl())
 
+def parse_comptime(l):
+    assert_val(l, "comptime")
+    return ParseNode(NTERM_COMPTIME, [ ParseNode(TERM, l.next(), l.sl()), parse_statement_list(l) ], l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")
