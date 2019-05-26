@@ -70,6 +70,15 @@ class AstIf(AstNode):
         else:
             return None
 
+class AstAssignment(AstNode):
+    def __init__(self, var, val, decoration):
+        super().__init__(decoration)
+        self.var = var
+        self.val = val
+    def get_type(self, s): return VoidType()
+    def codegen(self, m, s, b, exp_ty=None):
+        return b.store(self.val.codegen(m, s, b), self.var.codegen(m, s, b, lval=True))
+
 class AstStructMemberVar(AstNode):
     def __init__(self, name, type_expr):
         self.name = name
@@ -146,7 +155,11 @@ class AstFnDeclaration(AstNode):
             var.val = alloca
             subscope.set(name, var)
 
-        b.ret(self.body.codegen(m, subscope, b, exp_ty=internal_fnty.return_type))
+        if internal_fnty.return_type.eq(VoidType()):
+            self.body.codegen(m, subscope, b, exp_ty=internal_fnty.return_type)
+            b.ret_void()
+        else:
+            b.ret(self.body.codegen(m, subscope, b, exp_ty=internal_fnty.return_type))
 
         return fn
 
@@ -158,7 +171,10 @@ class AstFnSignature(AstNode):
         self.return_type = return_type
 
     def codegen(self, m, s):
-        ret = self.return_type.resolve(s)
+        ret = None
+        if self.return_type:
+            ret = self.return_type.resolve(s)
+        else: ret = VoidType()
         args = [pdecl.type_ident.resolve(s) for pdecl in self.parameter_decl_list]
         return FunctionType(ret, args)
 
@@ -254,9 +270,7 @@ class AstQualifiedNameAddition:
             elif isinstance(var_type, StructType):
                 ## Create a GEP - find the offset of the field
                 ret = None
-                print(var_type.data.fields)
                 for ii, f in enumerate(var_type.data.fields):
-                    print(self.name, f.field_name)
                     if f.field_name == self.name:
                         ret = f.field_type
                         break
@@ -289,9 +303,7 @@ class AstQualifiedNameAddition:
                 ## Create a GEP - find the offset of the field
                 ix = None
                 new_type = None
-                print(curr.var_type.data.fields)
                 for ii, f in enumerate(curr.var_type.data.fields):
-                    print(self.name, f.field_name)
                     if f.field_name == self.name:
                         new_type = f.field_type
                         ix = ii

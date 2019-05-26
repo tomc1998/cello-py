@@ -30,3 +30,8 @@ fn deref = (a: &i32) -> i32 a.*
 fn get_foo_a = (f: &Foo) -> i32 f.a
 
 fn add_foo = (f: &Foo) -> i32 f.a + f.b
+
+fn clone_foo = (foo: &Foo, target: &Foo) {
+  target.a = foo.a;
+  target.b = foo.b;
+}

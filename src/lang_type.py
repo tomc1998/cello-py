@@ -33,7 +33,9 @@ class KindType(Type):
 class VoidType(Type):
     def __init__(self):
         super().__init__("void")
-    def to_llvm_type(self): return ir.VoidType
+    def to_llvm_type(self): return ir.VoidType()
+    def eq(self, other):
+        return isinstance(other, VoidType)
 
 class StructField:
     def __init__(self, field_name, field_type: Type):

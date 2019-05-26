@@ -212,6 +212,13 @@ def parse_qualified_name(l, lrec=None):
         else: children.append(parse_op(l))
     return ParseNode(NTERM_QUALIFIED_NAME, children, l.sl())
 
+def parse_assignment(l, lrec=None):
+    children = [ lrec ]
+    assert_val(l, "=")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    return ParseNode(NTERM_ASSIGNMENT, children, l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")
@@ -293,6 +300,8 @@ def parse_expression(l, no_right_angle=False):
         ## As a bonus, don't parse assignment ops here
         elif l.peek()[0] == "op" and not is_assignment_op(l.peek()) and (not no_right_angle or l.peek()[1] != ">"):
             lrec = parse_binary_expression(l, lrec)
+        elif is_assignment_op(l.peek()):
+            lrec = parse_assignment(l, lrec)
         else: break
         added_lrec = True
 

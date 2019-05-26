@@ -14,11 +14,11 @@ def create_fn_signature(p):
     parameter_decl_list = create_parameter_decl_list(p.tok_val[0]);
     ii = 1
     is_mut = False
-    if p.tok_val[ii].is_term("mut"):
+    if ii < len(p.tok_val) and p.tok_val[ii].is_term("mut"):
         is_mut = True
         ii += 1
     return_val = None
-    if p.tok_val[ii].is_term("->"):
+    if ii < len(p.tok_val) and p.tok_val[ii].is_term("->"):
         ii += 1
         return_val = create_type_ident(p.tok_val[ii])
     return AstFnSignature(parameter_decl_list, is_mut, return_val, p.sl);
@@ -142,6 +142,12 @@ def create_qualified_name(p):
         ii += 2
     return AstQualifiedName(base_name, additions, p.sl)
 
+def create_assignment(p):
+    assert p.is_nterm(NTERM_ASSIGNMENT)
+    var = create_expression(p.tok_val[0])
+    val = create_expression(p.tok_val[2])
+    return AstAssignment(var, val, p.sl)
+
 def create_expression(p):
     while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
     if p.is_nterm(NTERM_IDENTIFIER):
@@ -158,6 +164,8 @@ def create_expression(p):
         return create_literal(p)
     elif p.is_nterm(NTERM_QUALIFIED_NAME):
         return create_qualified_name(p)
+    elif p.is_nterm(NTERM_ASSIGNMENT):
+        return create_assignment(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 
