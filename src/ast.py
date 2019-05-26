@@ -2,6 +2,7 @@ from llvmlite import ir
 from typing import List
 from parser import *
 from lang_type import *
+from mangle import mangle_function
 from scope import Var
 import jit
 
@@ -130,22 +131,41 @@ class AstFnDeclaration(AstNode):
         self.template_parameter_decl_list = template_parameter_decl_list
         self.fn_signature = fn_signature
         self.body = body
+        ## A map of name mangles to instantiated functions (unused if template_parameter_decl_list == None or len 0)
+        self.instantiated = {}
 
     def get_type(self, s): return None
 
-    def codegen(self, m, s, b):
+    def instantiate(self, m, s, b, type_parameters: List[Type]):
+        assert (not self.template_parameter_decl_list and len(type_parameters) == 0) \
+            or len(type_parameters) == len(self.template_parameter_decl_list)
+        parent_scope = s
+        s = s.subscope()
+
+        ## First figure out type params and add them all to the scope before
+        ## trying to gen the fn signature (since returntype / args might depend
+        ## on the template params)
+        if self.template_parameter_decl_list:
+            for i, f in enumerate(self.template_parameter_decl_list):
+                s.set(f.name, Var(type_parameters[i], name=f.name))
+
         ## Create the function type
-        internal_fnty = self.fn_signature.codegen(m, s)
+        internal_fnty = self.fn_signature.codegen(s)
+        ## Mangle the func name
+        mangled = mangle_function(self.fn_name, internal_fnty.args, type_parameters)
+
+        ## Check if we have an instantiation cached
+        if mangled in self.instantiated: return self.instantiated[mangled]
+
         fnty = internal_fnty.to_llvm_type()
         ## Create the function
-        fn = ir.Function(m, fnty, name=self.fn_name)
-        ## Add to scope
-        s.set(self.fn_name, Var(internal_fnty, fn))
+        fn = ir.Function(m, fnty, name=mangled)
+        ## Add to (parent) scope
+        parent_scope.set(mangled, Var(internal_fnty, fn))
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)
 
         ## Insert args into the scope, storing as allocas
-        subscope = s.subscope()
         args = zip(fn.args, self.fn_signature.parameter_decl_list)
         for_scope = map(lambda x : (x[1].name, Var(x[1].type_ident.resolve(s), name=x[1].name, val=x[0])), args)
         for name, var in for_scope:
@@ -153,15 +173,24 @@ class AstFnDeclaration(AstNode):
             alloca = b.alloca(llvm_ty, name=name)
             b.store(var.val, alloca)
             var.val = alloca
-            subscope.set(name, var)
+            s.set(name, var)
 
         if internal_fnty.return_type.eq(VoidType()):
-            self.body.codegen(m, subscope, b, exp_ty=internal_fnty.return_type)
+            self.body.codegen(m, s, b, exp_ty=internal_fnty.return_type)
             b.ret_void()
         else:
-            b.ret(self.body.codegen(m, subscope, b, exp_ty=internal_fnty.return_type))
+            b.ret(self.body.codegen(m, s, b, exp_ty=internal_fnty.return_type))
 
+        self.instantiated[mangled] = fn
         return fn
+
+    def codegen(self, m, s, b):
+        if not self.template_parameter_decl_list or len(self.template_parameter_decl_list) == 0:
+            ## Instantiate immediately
+            self.instantiate(m, s, b, [])
+        else:
+            ## Add as uninstantiated
+            s.set(self.fn_name, Var(UninstantiatedFunction(self)))
 
 class AstFnSignature(AstNode):
     def __init__(self, parameter_decl_list, is_mut, return_type, decoration):
@@ -170,7 +199,7 @@ class AstFnSignature(AstNode):
         self.is_mut = is_mut
         self.return_type = return_type
 
-    def codegen(self, m, s):
+    def codegen(self, s):
         ret = None
         if self.return_type:
             ret = self.return_type.resolve(s)
@@ -181,22 +210,64 @@ class AstFnSignature(AstNode):
 class AstFnCall(AstNode):
     def __init__(self, name, template_params, param_list, decoration):
         super().__init__(decoration)
-        assert not template_params, "Template params not implemented"
         self.name = name
         self.template_params = template_params
         self.param_list = param_list
 
+    ## Find the associated function Var
+    def find_function(self, s):
+        resolved = self.name.resolve(s)
+        if not resolved:
+            ## Try the mangled name
+            type_parameters = []
+            if self.template_params:
+                type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+            parameters = list(map(lambda x: x.get_type(s), self.param_list))
+            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters, parameters)
+            return s.lookup(mangled);
+        else: return resolved
+
     def get_type(self, s):
-        return self.name.resolve(s).var_type.return_type
+        resolved = self.find_function(s)
+        if isinstance(resolved.var_type, UninstantiatedFunction):
+            ## Find the type by applying the template parameters
+            subscope = s.subscope()
+
+            type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+
+            ## First figure out type params and add them all to the scope before
+            ## trying to gen the fn signature (since returntype / args might depend
+            ## on the template params)
+            if resolved.var_type.fn_declaration.template_parameter_decl_list:
+                for i, f in enumerate(resolved.var_type.fn_declaration.template_parameter_decl_list):
+                    subscope.set(f.name, Var(type_parameters[i], name=f.name))
+
+            ## Create the function type
+            internal_fnty = resolved.var_type.fn_declaration.fn_signature.codegen(subscope)
+
+            return internal_fnty.return_type
+        else: return resolved.var_type.return_type
 
     def codegen(self, m, s, b, exp_ty=None):
         # Find function
-        fn = self.name.resolve(s).val
-        # Create args
-        args = []
-        for a in self.param_list: args.append(a.codegen(m, s, b))
-        # Call the function
-        return gen_coercion(b, b.call(fn, args), self.get_type(s), exp_ty)
+        fn = self.find_function(s)
+        print(self.name.parse_node.tok_val[0].tok_val[0].tok_val, fn)
+        if isinstance(fn.var_type, UninstantiatedFunction):
+            ## Instantiate this type first. Figure out type params.
+            ## No type inference for now - just codegen it all
+            concrete_template_params = list(map(lambda x: x.get_type(s), self.template_params))
+            fn_instantiation = fn.var_type.fn_declaration.instantiate(m, s, b, concrete_template_params)
+            # Create args
+            args = []
+            for a in self.param_list: args.append(a.codegen(m, s, b))
+            # Call the function
+            return gen_coercion(b, b.call(fn_instantiation, args), self.get_type(s), exp_ty)
+        else: # Just call, no need to instantiate
+            # Create args
+            args = []
+            for a in self.param_list: args.append(a.codegen(m, s, b))
+            # Call the function
+            return gen_coercion(b, b.call(fn.val, args), self.get_type(s), exp_ty)
 
 class AstIntLit(AstNode):
     def __init__(self, val, decoration):
@@ -344,21 +415,22 @@ class AstQualifiedName(AstNode):
         return gen_coercion(b, ret, ret_type, exp_ty)
 
 class TypeIdent(Resolveable):
-    ## Return the LLVM value for this type.
-    def resolve(self, s):
+    ## Return the lang type for this type
+    def resolve(self, s) -> Type:
         assert self.parse_node.is_nterm(NTERM_EXPRESSION) or self.pares_node.is_nterm(NTERM_IDENTIFIER)
         if self.parse_node.is_nterm(NTERM_IDENTIFIER):
-            resolved = s.lookup(self.parse_node.tok_val[0].tok_val[1]).var_type.val
-            return resolved
+            return s.lookup(self.parse_node.tok_val[0].tok_val[1]).var_type.val
         if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
-            resolved = s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1]).var_type.val
-            return resolved
+            return s.lookup(self.parse_node.tok_val[0].tok_val[0].tok_val[1]).var_type.val
+        elif self.parse_node.tok_val[0].is_nterm(NTERM_META_TYPE_IDENT):
+            return s.lookup("$" + self.parse_node.tok_val[0].tok_val[1].tok_val[1]).var_type.val
         elif self.parse_node.tok_val[0].is_nterm(NTERM_OP) and \
              self.parse_node.tok_val[0].tok_val[0].is_term("&"):
             ## Pointer type
             assert self.parse_node.tok_val[1].tok_val[0].is_nterm(NTERM_IDENTIFIER)
             resolved = s.lookup(self.parse_node.tok_val[1].tok_val[0].tok_val[0].tok_val[1]).var_type.val
             return resolved.ptr()
+        else: assert False, "Unimpl"
 
 class VarIdent(Resolveable):
     def get_type(self, s):

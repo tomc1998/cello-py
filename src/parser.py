@@ -283,7 +283,7 @@ def parse_expression(l, no_right_angle=False):
         elif ((l.peek()[1] == "." or l.peek()[1] == "::") and l.peek(1)
                 and (l.peek(1)[0] == "ident" or
                      l.peek(1)[0] == "int_lit" or
-                     l.peek(1)[0] == "op")):
+                     l.peek(1)[1] == "*")):
             lrec = parse_qualified_name(l, lrec)
         elif l.peek()[1] == "(":
             lrec = parse_function_call(l, lrec)

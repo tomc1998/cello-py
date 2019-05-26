@@ -113,6 +113,11 @@ class FunctionType(Type):
         args = [arg.to_llvm_type() for arg in self.args]
         return ir.FunctionType(ret, tuple(args))
 
+class UninstantiatedFunction(Type):
+    ## @param fn_declaration - an AstFnDeclaration for instantiating this at a later date
+    def __init__(self, fn_declaration):
+        self.fn_declaration = fn_declaration
+
 class BoolType(Type):
     def __init__(self):
         super().__init__("bool")

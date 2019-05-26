@@ -2,7 +2,7 @@ from ast import *
 from parser import *
 
 def ast_assert(val, msg=""):
-    assert val, msg ;
+    assert val, msg;
 
 ## Given an expression parse node, try to extract a type identifier (i.e.
 ## 'i32', or 'my_type_fn()' where my_type_fn returns a type).
@@ -94,6 +94,25 @@ def create_if(p):
     elif p.is_nterm(NTERM_ELSE):
         return create_statement_list(p.tok_val[1])
 
+def create_template_parameter_list(p):
+    assert p.is_nterm(NTERM_TEMPLATE_PARAMETER_LIST)
+    ii = 1
+    params = []
+    while ii < len(p.tok_val) and not p.tok_val[ii].is_term(">"):
+        if p.tok_val[ii].is_nterm(NTERM_EXPRESSION):
+            params.append(create_expression(p.tok_val[ii]))
+        ii += 1
+    return params
+
+def create_parameter_list(p):
+    ii = 1
+    params = []
+    while ii < len(p.tok_val) and not p.tok_val[ii].is_term(")"):
+        if p.tok_val[ii].is_nterm(NTERM_EXPRESSION):
+            params.append(create_expression(p.tok_val[ii]))
+        ii += 1
+    return params
+
 def create_parameter_list(p):
     ii = 1
     params = []
@@ -105,17 +124,17 @@ def create_parameter_list(p):
 
 def create_function_call(p):
     assert p.is_nterm(NTERM_FUNCTION_CALL)
-    assert p.tok_val[0].tok_val[0].is_nterm(NTERM_IDENTIFIER), "Function call where function name isn't ident unimpl"
-    function_name = Resolveable(p.tok_val[0], p.sl)
-    template_params = None
-    ii = 1
-    if p.tok_val[ii].is_term("::"):
-        ii += 1
-        template_params = create_template_parameter_list(p.tok_val[ii])
-        ii += 1
+    ## Find the expression for this function
+    if p.tok_val[0].tok_val[0].is_nterm(NTERM_IDENTIFIER):
+        function_name = Resolveable(p.tok_val[0], p.sl)
+        template_params = None
+    else:
+        assert p.tok_val[0].is_nterm(NTERM_QUALIFIED_TYPE)
+        function_name = Resolveable(p.tok_val[0].tok_val[0], p.sl)
+        template_params = create_template_parameter_list(p.tok_val[0].tok_val[2])
+        print(template_params)
 
-    assert not template_params, "Template params not implemented"
-    param_list = create_parameter_list(p.tok_val[ii])
+    param_list = create_parameter_list(p.tok_val[1])
     return AstFnCall(function_name, template_params, param_list, p.sl)
 
 def create_literal(p):
@@ -168,6 +187,34 @@ def create_expression(p):
         return create_assignment(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
+
+
+def create_template_parameter_decl_list(p):
+    assert p.is_nterm(NTERM_TEMPLATE_PARAMETER_DECL_LIST)
+    ii = 1
+    ret = []
+    while p.tok_val[ii] and not p.tok_val[ii].is_term(">"):
+        pdecl = p.tok_val[ii]
+        jj = 0
+        assert not pdecl.tok_val[jj].is_term("comptime"), "Unimpl"
+        pname = None
+        ptype = None
+        if pdecl.tok_val[jj].is_nterm(NTERM_IDENTIFIER):
+            ## [comptime] Name: Type
+            pname = pdecl.tok_val[jj].tok_val[0].tok_val[1]
+            jj += 2
+            ptype = create_type_ident(pdecl.tok_val[jj])
+            jj += 1
+        else:
+            ## [comptime] Type
+            ptype = create_type_ident(pdecl.tok_val[jj])
+            jj += 1
+        ret.append(ParameterDecl(pname, ptype, p.sl))
+        if p.tok_val[ii+1].is_term(">"): break
+        ast_assert(p.tok_val[ii+1].is_term(","))
+        ii += 2
+    return ret
+
 
 
 def create_fn_declaration(p):
