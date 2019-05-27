@@ -7,6 +7,7 @@ from scope import Var
 import jit
 
 class AstNode:
+    def walk_dfs(self, fn): fn(self)
     def __init__(self, decoration):
         self.decoration = decoration
 
@@ -38,6 +39,13 @@ class AstProgram(AstNode):
             ret = c.codegen(m, s, b)
         return gen_coercion(b, ret, self.get_type(s), exp_ty)
 
+    def run_all_comptime(self, m, s):
+        for c in self.children: c.run_all_comptime(m, s)
+
+    def walk_dfs(self, fn):
+        for c in self.children: c.walk_dfs(fn)
+        fn(self)
+
     def get_type(self, s):
         return self.children[len(self.children)-1].get_type(s)
 
@@ -49,8 +57,17 @@ class AstIf(AstNode):
         self.decoration = decoration
         self.fallback = fallback
 
+    def walk_dfs(self, fn):
+        for c in self.conditions: c.walk_dfs(fn)
+        self.fallback.walk_dfs(fn)
+        fn(self)
+
     def get_type(self, s):
         return self.conditions[0].body.get_type(s)
+
+    def run_all_comptime(self, m, s):
+        for c in self.conditions: c.run_all_comptime(m, s)
+        self.fallback.run_all_comptime(m, s)
 
     def codegen(self, m, s, b, exp_ty=None):
         internal_type = self.get_type(s)
@@ -77,13 +94,25 @@ class AstAssignment(AstNode):
         self.var = var
         self.val = val
     def get_type(self, s): return VoidType()
+    def walk_dfs(self, fn):
+        self.var.walk_dfs(fn)
+        self.val.walk_dfs(fn)
+        fn(self)
     def codegen(self, m, s, b, exp_ty=None):
         return b.store(self.val.codegen(m, s, b), self.var.codegen(m, s, b, lval=True))
+    def run_all_comptime(self, m, s):
+        self.var.run_all_comptime(m, s)
+        self.val.run_all_comptime(m, s)
 
 class AstStructMemberVar(AstNode):
     def __init__(self, name, type_expr):
         self.name = name
         self.type_expr = type_expr
+
+    def walk_dfs(self, fn):
+        self.name.walk_dfs(fn)
+        self.type_expr.walk_dfs(fn)
+        fn(self)
 
     def get_type(self, s):
         return StructField(self.name, self.type_expr.get_type(s).val)
@@ -92,6 +121,10 @@ class AstStructMemberVar(AstNode):
 class AstStructDefinition(AstNode):
     def __init__(self, fields):
         self.fields = fields
+
+    def walk_dfs(self, fn):
+        for f in self.fields: f.walk_dfs(fn)
+        fn(self)
 
     def get_type(self, s):
         resolved_fields = list(map(lambda x: x.get_type(s), self.fields))
@@ -102,6 +135,11 @@ class AstTypeDeclaration(AstNode):
         self.name = name
         self.definition = definition
         self.is_export = is_export
+    def walk_dfs(self, fn):
+        self.definition.walk_dfs(fn)
+        fn(self)
+    def run_all_comptime(self, m, s):
+        print ("Unimpl run all comptime on ast type decl")
     def codegen(self, m, s, b, exp_ty=None):
         s.set(self.name, Var(self.definition.get_type(s)))
 
@@ -111,6 +149,13 @@ class AstConditional(AstNode):
         super().__init__(decoration)
         self.cond = cond
         self.body = body
+    def walk_dfs(self, fn):
+        self.cond.walk_dfs(fn)
+        self.body.walk_dfs(fn)
+        fn(self)
+    def run_all_comptime(self, m, s):
+        self.cond.run_all_comptime(m, s)
+        self.body.run_all_comptime(m, s)
     def codegen(self, m, s, b, after_block, ty, exp_ty=None):
         curr_block = b.block
         true_block = b.append_basic_block()
@@ -128,11 +173,37 @@ class AstComptime(AstNode):
     def __init__(self, body, decoration):
         super().__init__(decoration)
         self.body = body
-    def codegen(self, m, s, b, exp_ty=None):
+        self.computed = None
+    def get_type(self, s): return self.body.get_type(s)
+    def walk_dfs(self, fn):
+        self.body.walk_dfs(fn)
+        fn(self)
+    def run_all_comptime(self, m, s):
+        # First run all nested comptime
+        self.body.run_all_comptime(m, s)
+
+        body = self.body
+        def preamble(m):
+            ## Walk the body & find all fncalls so we can fwd decl them all
+            def walk_fn(x):
+                if isinstance(x, AstFnCall):
+                    ## Fwd decl this function
+                    type_parameters = []
+                    if x.template_params:
+                        type_parameters = list(map(lambda x: x.get_type(s), x.template_params))
+                    internal_fnty = x.get_internal_fnty(s)
+                    mangled = mangle_function(x.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
+                    ir.Function(m, internal_fnty.to_llvm_type(), name=mangled)
+            body.walk_dfs(walk_fn)
+
         subscope = s.subscope();
         ty = self.body.get_type(s)
-        jit_val = jit.jit_node(self.body, ty, subscope)
-        return gen_coercion(b, jit_val, ty, exp_ty)
+        jit_val = jit.jit_node(self.body, ty, subscope, preamble)
+        self.computed = jit_val
+    def codegen(self, m, s, b, exp_ty=None):
+        assert self.computed != None
+        ty = self.body.get_type(s)
+        return gen_coercion(b, self.computed, ty, exp_ty)
 
 class AstFnDeclaration(AstNode):
     def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body, decoration):
@@ -144,9 +215,17 @@ class AstFnDeclaration(AstNode):
         ## A map of name mangles to instantiated functions (unused if template_parameter_decl_list == None or len 0)
         self.instantiated = {}
 
+    def walk_dfs(self, fn):
+        self.template_parameter_decl_list.walk_dfs(fn)
+        self.fn_signature.walk_dfs(fn)
+        self.body.walk_dfs(fn)
+        fn(self)
+
     def get_type(self, s): return None
 
-    def instantiate(self, m, s, b, type_parameters: List[Type]):
+    def run_all_comptime(self, m, s): pass
+
+    def instantiate(self, m, s, type_parameters: List[Type]):
         assert (not self.template_parameter_decl_list and len(type_parameters) == 0) \
             or len(type_parameters) == len(self.template_parameter_decl_list)
         parent_scope = s
@@ -162,10 +241,17 @@ class AstFnDeclaration(AstNode):
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(s)
         ## Mangle the func name
-        mangled = mangle_function(self.fn_name, list(map(lambda x: x.val, type_parameters)), internal_fnty.args)
+        mangled = mangle_function(self.fn_name, list(map(lambda x: x.val, type_parameters)))
 
         ## Check if we have an instantiation cached
         if mangled in self.instantiated: return self.instantiated[mangled]
+
+        ## Instantiate, so run the comptime stuff for the body in a subscope
+        comptime_subscope = s.subscope()
+        jit.push_jit_env()
+        jit.add_module(m)
+        self.body.run_all_comptime(m, comptime_subscope)
+        jit.pop_jit_env()
 
         fnty = internal_fnty.to_llvm_type()
         ## Create the function
@@ -197,7 +283,7 @@ class AstFnDeclaration(AstNode):
     def codegen(self, m, s, b):
         if not self.template_parameter_decl_list or len(self.template_parameter_decl_list) == 0:
             ## Instantiate immediately
-            self.instantiate(m, s, b, [])
+            self.instantiate(m, s, [])
         else:
             ## Add as uninstantiated
             s.set(self.fn_name, Var(UninstantiatedFunction(self)))
@@ -208,6 +294,11 @@ class AstFnSignature(AstNode):
         self.parameter_decl_list = parameter_decl_list
         self.is_mut = is_mut
         self.return_type = return_type
+
+    def walk_dfs(self, fn):
+        self.parameter_decl_list.walk_dfs(fn)
+        self.return_type.walk_dfs(fn)
+        fn(self)
 
     def codegen(self, s):
         ret = None
@@ -224,19 +315,50 @@ class AstFnInstantiation(AstNode):
 
     def get_type(self, s): return None
 
+    def walk_dfs(self, fn):
+        self.template_params.walk_dfs(fn)
+        fn(self)
+
+    def run_all_comptime(self, m, s): pass
+
     def codegen(self, m, s, b):
         resolved = s.lookup(self.name)
         template_parameters = []
         if self.template_params:
             template_parameters = list(map(lambda x: x.get_type(s), self.template_params))
-        resolved.var_type.fn_declaration.instantiate(m, s, b, template_parameters)
+        resolved.var_type.fn_declaration.instantiate(m, s, template_parameters)
 
 class AstFnCall(AstNode):
     def __init__(self, name, template_params, param_list, decoration):
         super().__init__(decoration)
         self.name = name
         self.template_params = template_params
+        if self.template_params == None: self.template_params = []
         self.param_list = param_list
+
+    def walk_dfs(self, fn):
+        self.name.walk_dfs(fn)
+        for p in self.template_params: p.walk_dfs(fn)
+        for p in self.param_list: p.walk_dfs(fn)
+        fn(self)
+
+    def run_all_comptime(self, m, s):
+        ## Instantiate function now (assuming this isn't a recursive call),
+        ## since we need to run the comptime stuff on the called function now -
+        ## otherwise the module will be half way through a function when we
+        ## JIT, and we'll get an error parsing the module
+        fn = self.find_function(s)
+        ## If we can't find the function, chances are this is recursive, & we
+        ## don't (currently) support comptime eval for recursive calls. This
+        ## would only make sense if we're instantiating functions
+        ## recursively... not sure if we wantt his / need this, either way
+        ## sounds like a faff. Just ignore for now.
+        ## TODO if recursive comptime evaluation is needed, needs to be put in here
+        if not fn: return
+        if isinstance(fn.var_type, UninstantiatedFunction):
+            internal_fnty = self.get_internal_fnty(s)
+            concrete_template_params = list(map(lambda x: x.get_type(s), self.template_params))
+            fn.var_type.fn_declaration.instantiate(m, s, concrete_template_params)
 
     ## Find the associated function Var
     def find_function(self, s):
@@ -246,12 +368,11 @@ class AstFnCall(AstNode):
             type_parameters = []
             if self.template_params:
                 type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
-            parameters = list(map(lambda x: x.get_type(s), self.param_list))
-            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters, parameters)
+            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
             return s.lookup(mangled);
         else: return resolved
 
-    def get_type(self, s):
+    def get_internal_fnty(self, s):
         resolved = self.find_function(s)
         if isinstance(resolved.var_type, UninstantiatedFunction):
             ## Find the type by applying the template parameters
@@ -269,26 +390,32 @@ class AstFnCall(AstNode):
             ## Create the function type
             internal_fnty = resolved.var_type.fn_declaration.fn_signature.codegen(subscope)
 
-            return internal_fnty.return_type
-        else: return resolved.var_type.return_type
+            return internal_fnty
+        else: return resolved.var_type
+
+    def get_type(self, s):
+        return self.get_internal_fnty(s).return_type
 
     def codegen(self, m, s, b, exp_ty=None):
         # Find function
         fn = self.find_function(s)
+        internal_fnty = self.get_internal_fnty(s)
         if isinstance(fn.var_type, UninstantiatedFunction):
             ## Instantiate this type first. Figure out type params.
             ## No type inference for now - just codegen it all
             concrete_template_params = list(map(lambda x: x.get_type(s), self.template_params))
-            fn_instantiation = fn.var_type.fn_declaration.instantiate(m, s, b, concrete_template_params)
+            fn_instantiation = fn.var_type.fn_declaration.instantiate(m, s, concrete_template_params)
             # Create args
             args = []
-            for a in self.param_list: args.append(a.codegen(m, s, b))
+            for ii, a in enumerate(self.param_list):
+                args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
             # Call the function
             return gen_coercion(b, b.call(fn_instantiation, args), self.get_type(s), exp_ty)
         else: # Just call, no need to instantiate
             # Create args
             args = []
-            for a in self.param_list: args.append(a.codegen(m, s, b))
+            for ii, a in enumerate(self.param_list):
+                args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
             # Call the function
             return gen_coercion(b, b.call(fn.val, args), self.get_type(s), exp_ty)
 
@@ -319,11 +446,17 @@ class AstIntLit(AstNode):
     def get_type(self, s):
         return self.internal_ty
 
+    def run_all_comptime(self, m, s): pass
+
     def codegen(self, m, s, b, exp_ty=None):
         # Gen the int type and return
         return gen_coercion(b, ir.Constant(self.internal_ty.to_llvm_type(), self.val), self.get_type(s), exp_ty)
 
 class ParameterDecl(AstNode):
+    def walk_dfs(self, fn):
+        self.type_ident.walk_dfs(fn)
+        fn(self)
+
     def __init__(self, name, type_ident, decoration):
         super().__init__(decoration)
         self.name = name
@@ -336,6 +469,7 @@ class Resolveable(AstNode):
         assert p.is_nterm(NTERM_EXPRESSION) or p.is_nterm(NTERM_IDENTIFIER)
         # The parse node for this type ident.
         self.parse_node = p
+    def run_all_comptime(self, m, s): pass
     # @param s - scope
     def resolve(self, s):
         p = self.parse_node
@@ -416,6 +550,8 @@ class AstQualifiedName(AstNode):
         self.base_name = base_name
         self.additions = additions
 
+    def run_all_comptime(self, m, s): pass
+
     ## Codegen as a variable
     def get_type(self, s):
         ret = self.base_name.resolve(s).var_type
@@ -438,6 +574,7 @@ class AstQualifiedName(AstNode):
         return gen_coercion(b, ret, ret_type, exp_ty)
 
 class TypeIdent(Resolveable):
+    def run_all_comptime(self, m, s): pass
     ## Return the lang type for this type
     def resolve(self, s) -> Type:
         assert self.parse_node.is_nterm(NTERM_EXPRESSION) or self.pares_node.is_nterm(NTERM_IDENTIFIER)
@@ -456,6 +593,7 @@ class TypeIdent(Resolveable):
         else: assert False, "Unimpl"
 
 class VarIdent(Resolveable):
+    def run_all_comptime(self, m, s): pass
     def get_type(self, s):
         return self.resolve(s).var_type
     def codegen(self, m, s, b, exp_ty=None, lval=False):
@@ -465,11 +603,19 @@ class VarIdent(Resolveable):
             return gen_coercion(b, b.load(self.resolve(s).val, name=self.resolve(s).name), self.get_type(s), exp_ty)
 
 class BinaryExpression(AstNode):
+    def run_all_comptime(self, m, s):
+        self.lhs.run_all_comptime(m, s)
+        self.rhs.run_all_comptime(m, s)
     def __init__(self, lhs, op, rhs, decoration):
         super().__init__(decoration)
         self.lhs = lhs
         self.op = op
         self.rhs = rhs
+
+    def walk_dfs(self, fn):
+        self.lhs.walk_dfs(fn)
+        self.rhs.walk_dfs(fn)
+        fn(self)
 
     def get_type(self, s):
         if self.op == "+" or self.op == "-" or self.op == "/" or self.op == "*":

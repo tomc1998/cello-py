@@ -25,7 +25,17 @@ fn clone_foo = (foo: &Foo, target: &Foo) {
   target.b = foo.b;
 }
 
-fn eight = () -> i32 comptime { 3 + 5 }
+fn factorial = (a: i32) -> i32 {
+  if a == 1 { 1 }
+  elif a == 0 { 1 }
+  else { a * factorial(a-1) }
+}
+
+fn fac5 = () -> i32 {
+  comptime { factorial(5) }
+}
+
+/*fn eight = () -> i32 comptime { 3 + 5 }*/
 
 fn add_generic<T: $type> = (a:T, b:T) -> T a + b;
 

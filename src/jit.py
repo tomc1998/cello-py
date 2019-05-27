@@ -5,6 +5,7 @@ import jit_result
 
 ## LLVM JIT engine
 jit = None
+env_stack = [[]]
 
 ## Call this at the start of compilation
 def init_jit():
@@ -21,13 +22,38 @@ def init_jit():
     backing_mod = llvm.parse_assembly("")
     jit = llvm.create_mcjit_compiler(backing_mod, target_machine)
 
+def curr_jit_env():
+    global jit
+    return env_stack[len(env_stack)-1]
+
+def push_jit_env():
+    global jit
+    env_stack.append([])
+
+def pop_jit_env():
+    global jit
+    for m in curr_jit_env(): jit.remove_module(m)
+    env_stack.pop()
+
+def add_module(m):
+    global jit
+    binding_module = llvm.parse_assembly(str(m))
+    binding_module.verify()
+    jit.add_module(binding_module)
+    env_stack[len(env_stack)-1].append(binding_module)
+
+
 ## Given a node 'n', jit it and return the result of the expression as an LLVM
 ## value (probably a constant, need to think about this though).
-def jit_node(n, ty, scope):
+## @param gen_preamble_fn - This is called with the jit LLVM module right
+## before creating the entry function for the module. Use this to insert any
+## declarations that the node needs to function.
+def jit_node(n, ty, scope, gen_preamble_fn):
     global jit
     assert jit, "JIT not initialized"
     ## Create the IR module, gen the module
     m = ir.Module(name="jit")
+    gen_preamble_fn(m)
     internal_ret_ty = n.get_type(scope)
     ret_ty = internal_ret_ty.to_llvm_type()
     fnty = ir.FunctionType(ret_ty, ())
@@ -36,6 +62,8 @@ def jit_node(n, ty, scope):
     b = ir.IRBuilder(entry_block)
     ret_val = n.codegen(m, scope, b)
     b.ret(ret_val)
+
+    print(m)
 
     ## Create binding module
     binding_module = llvm.parse_assembly(str(m))
@@ -50,8 +78,6 @@ def jit_node(n, ty, scope):
     entry_fn_ptr = jit.get_function_address("__jit_entry")
     entry_fn = CFUNCTYPE(restype=internal_ret_ty.to_c_type())(entry_fn_ptr)
     res = entry_fn()
-
-    print("JIT RESULT = " + str(res))
 
     jit.remove_module(binding_module)
 
