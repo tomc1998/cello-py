@@ -2,7 +2,7 @@ from llvmlite import ir
 from typing import List
 from parser import *
 from lang_type import *
-from mangle import mangle_function
+from mangle import mangle_function, mangle_global
 from scope import Var
 import jit
 
@@ -418,6 +418,36 @@ class AstFnCall(AstNode):
                 args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
             # Call the function
             return gen_coercion(b, b.call(fn.val, args), self.get_type(s), exp_ty)
+
+class AstCStringLit(AstNode):
+    def __init__(self, val, decoration):
+        super().__init__(decoration)
+        self.val = val
+        self.internal_ty = PtrType(IntType(8, False))
+    def get_type(self, s): return self.internal_ty
+    def run_all_comptime(self, m, s): pass
+    def codegen(self, m, s, b, exp_ty=None):
+        global_name = mangle_global()
+        ty = ir.ArrayType(IntType(8, False).to_llvm_type(), len(self.val))
+        global_var = ir.GlobalVariable(m, ty, global_name)
+        const_str = ir.Constant(ty, bytearray(self.val, encoding="utf8"))
+        global_var.initializer = const_str
+        return b.gep(global_var, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
+
+class AstExternFnDeclaration(AstNode):
+    def __init__(self, fn_name, fn_signature, decoration):
+        super().__init__(decoration)
+        self.fn_name = fn_name
+        self.fn_signature = fn_signature
+    def walk_dfs(self, fn):
+        self.fn_signature.walk_dfs(fn)
+        fn(self)
+    def get_type(self, s): return None
+    def run_all_comptime(self, m, s): pass
+    def codegen(self, m, s, b, exp_ty=None):
+        internal_fnty = self.fn_signature.codegen(s)
+        fn = ir.Function(m, internal_fnty.to_llvm_type(), name=self.fn_name)
+        s.set(self.fn_name, Var(internal_fnty, val=fn))
 
 class AstIntLit(AstNode):
     def __init__(self, val, decoration):

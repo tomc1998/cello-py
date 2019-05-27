@@ -1,0 +1,5 @@
+extern fn write = (fd: i32, buf: &u8, len: usize);
+
+fn do_write = () {
+  write(0, c"Hello", 5);
+}

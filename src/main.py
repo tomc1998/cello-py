@@ -20,7 +20,7 @@ jit.init_jit()
 
 ## Open the file
 buf = ""
-f = open("test/e2e-00.cel", "r")
+f = open("test/extern_fn.cel", "r")
 for line in f: buf += line
 
 ## Pass the tokens into the parser, get a parse tree

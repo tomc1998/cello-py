@@ -141,6 +141,8 @@ def create_literal(p):
     tok = p.tok_val[0].tok_val
     if tok[0] == "int_lit":
         return AstIntLit(int(tok[1]), p.sl)
+    if tok[0] == "c_string_lit":
+        return AstCStringLit(tok[1][2:len(tok[1])-1], p.sl)
     else:
         assert False, "Unimpl lit type: '" + tok[0] + "'"
 
@@ -240,6 +242,21 @@ def create_fn_declaration(p):
     body = create_expression(p.tok_val[ii]);
     return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, p.sl)
 
+def create_extern_fn_declaration(p):
+    assert p.is_nterm(NTERM_EXTERN_FN_DECLARATION)
+    ii = 0
+    assert p.tok_val[ii].is_term("extern")
+    ii += 1
+    assert p.tok_val[ii].is_term("fn")
+    ii += 1
+    fn_name = p.tok_val[ii].tok_val[0].to_string()
+    ii += 1
+    assert p.tok_val[ii].is_term("=")
+    ii += 1
+    fn_signature = create_fn_signature(p.tok_val[ii])
+    ii += 1
+    return AstExternFnDeclaration(fn_name, fn_signature, p.sl)
+
 # Converts to lang_type.StructField (or a memmber function, but that's unimpl)
 def create_struct_field(p):
     assert p.is_nterm(NTERM_STRUCT_FIELD)
@@ -320,7 +337,9 @@ def create_statement(p):
     assert p.is_nterm(NTERM_STATEMENT)
     if p.tok_val[0].is_nterm(NTERM_FN_DECLARATION):
         return create_fn_declaration(p.tok_val[0])
-    if p.tok_val[0].is_nterm(NTERM_FN_INSTANTIATION):
+    elif p.tok_val[0].is_nterm(NTERM_EXTERN_FN_DECLARATION):
+        return create_extern_fn_declaration(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_FN_INSTANTIATION):
         return create_fn_instantiation(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_TYPE_DECLARATION):
         return create_type_declaration(p.tok_val[0])

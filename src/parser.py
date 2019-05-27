@@ -105,10 +105,22 @@ def parse_identifier(l):
     assert_type(l, "ident")
     return ParseNode(NTERM_IDENTIFIER, [ParseNode(TERM, l.next(), l.sl())], l.sl())
 
+def parse_extern_fn_declaration(l):
+    children = []
+    assert_val(l, "extern")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "fn")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_identifier(l))
+    assert_val(l, "=")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_fn_signature(l))
+    return ParseNode(NTERM_EXTERN_FN_DECLARATION, children, l.sl())
+
 def parse_fn_declaration(l):
     children = []
     if l.peek()[1] == "export":
-        children.append({ *l.next(), {}, l.get_curr_source_label() })
+        children.append(ParseNode(TERM, l.next(), l.sl()))
     assert_val(l, "fn")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     children.append(parse_identifier(l))
@@ -336,7 +348,8 @@ def parse_template_parameter_decl_list(l):
     children.append(ParseNode(TERM, l.next(), l.sl()))
     while l.peek() and l.peek()[1] != ">":
         children.append(parse_parameter_decl(l, no_right_angle=True))
-        if l.peek() and l.peek()[1] == ",":
+        if l.peek() and l.peek()[1] != ">":
+            assert_val(l, ",")
             children.append(ParseNode(TERM, l.next(), l.sl()))
     assert_val(l, ">")
     children.append(ParseNode(TERM, l.next(), l.sl()))
@@ -362,7 +375,8 @@ def parse_parameter_decl_list(l):
     children.append(ParseNode(TERM, l.next(), l.sl()))
     while l.peek() and l.peek()[1] != ")":
         children.append(parse_parameter_decl(l))
-        if l.peek() and l.peek()[1] == ",":
+        if l.peek() and l.peek()[1] != ")":
+            assert_val(l, ",")
             children.append(ParseNode(TERM, l.next(), l.sl()))
     assert_val(l, ")")
     children.append(ParseNode(TERM, l.next(), l.sl()))

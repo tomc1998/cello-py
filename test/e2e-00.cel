@@ -35,7 +35,7 @@ fn fac5 = () -> i32 {
   comptime { factorial(5) }
 }
 
-/*fn eight = () -> i32 comptime { 3 + 5 }*/
+fn hello_c_str = () -> &u8 c"Hello, C!"
 
 fn add_generic<T: $type> = (a:T, b:T) -> T a + b;
 
