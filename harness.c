@@ -1,7 +1,11 @@
 #include <stdio.h>
 
-void __mangle_do_write();
+int add(int a, int b, int c) {
+  return a + b + c;
+}
+
+int __mangle_cello_add(int, int, int);
 
 int main(int argc, char** argv) {
-  __mangle_do_write();
+  printf("%d\n", __mangle_cello_add(2, 3, 4));
 }

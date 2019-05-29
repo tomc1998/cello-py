@@ -103,10 +103,10 @@ class FloatType(Type):
         return isinstance(other, FloatType) and other.num_bits == self.num_bits
 
 class FunctionType(Type):
-
-    def __init__(self, return_type: Type, args: List[Type]):
+    def __init__(self, return_type: Type, args: List[Type], is_extern: bool):
         self.return_type = return_type
         self.args = args
+        self.is_extern = is_extern
 
     def to_llvm_type(self):
         ret = self.return_type.to_llvm_type()

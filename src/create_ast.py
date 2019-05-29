@@ -9,7 +9,7 @@ def ast_assert(val, msg=""):
 def create_type_ident(p):
     return TypeIdent(p, p.sl);
 
-def create_fn_signature(p):
+def create_fn_signature(p, is_extern):
     assert p.is_nterm(NTERM_FN_SIGNATURE)
     parameter_decl_list = create_parameter_decl_list(p.tok_val[0]);
     ii = 1
@@ -21,7 +21,7 @@ def create_fn_signature(p):
     if ii < len(p.tok_val) and p.tok_val[ii].is_term("->"):
         ii += 1
         return_val = create_type_ident(p.tok_val[ii])
-    return AstFnSignature(parameter_decl_list, is_mut, return_val, p.sl);
+    return AstFnSignature(parameter_decl_list, is_mut, is_extern, return_val, p.sl);
 
 def create_parameter_decl_list(p):
     assert p.is_nterm(NTERM_PARAMETER_DECL_LIST)
@@ -223,7 +223,6 @@ def create_template_parameter_decl_list(p):
     return ret
 
 
-
 def create_fn_declaration(p):
     ii = 0
     ast_assert(p.tok_val[ii] != "export", "Unimpl");
@@ -237,7 +236,7 @@ def create_fn_declaration(p):
         ii += 1
     assert p.tok_val[ii].is_term("=")
     ii += 1
-    fn_signature = create_fn_signature(p.tok_val[ii])
+    fn_signature = create_fn_signature(p.tok_val[ii], False)
     ii += 1
     body = create_expression(p.tok_val[ii]);
     return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, p.sl)
@@ -253,7 +252,7 @@ def create_extern_fn_declaration(p):
     ii += 1
     assert p.tok_val[ii].is_term("=")
     ii += 1
-    fn_signature = create_fn_signature(p.tok_val[ii])
+    fn_signature = create_fn_signature(p.tok_val[ii], True)
     ii += 1
     return AstExternFnDeclaration(fn_name, fn_signature, p.sl)
 

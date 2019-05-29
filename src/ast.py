@@ -37,6 +37,7 @@ class AstProgram(AstNode):
         ret = None
         for i, c in enumerate(self.children):
             ret = c.codegen(m, s, b)
+        if isinstance(self.get_type(s), VoidType): return None
         return gen_coercion(b, ret, self.get_type(s), exp_ty)
 
     def run_all_comptime(self, m, s):
@@ -192,8 +193,10 @@ class AstComptime(AstNode):
                     if x.template_params:
                         type_parameters = list(map(lambda x: x.get_type(s), x.template_params))
                     internal_fnty = x.get_internal_fnty(s)
-                    mangled = mangle_function(x.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
-                    ir.Function(m, internal_fnty.to_llvm_type(), name=mangled)
+                    name = x.name.parse_node.tok_val[0].tok_val[0].tok_val[1]
+                    if not internal_fnty.is_extern:
+                        name = mangle_function(name, type_parameters)
+                    ir.Function(m, internal_fnty.to_llvm_type(), name=name)
             body.walk_dfs(walk_fn)
 
         subscope = s.subscope();
@@ -203,6 +206,7 @@ class AstComptime(AstNode):
     def codegen(self, m, s, b, exp_ty=None):
         assert self.computed != None
         ty = self.body.get_type(s)
+        if isinstance(ty, VoidType): return
         return gen_coercion(b, self.computed, ty, exp_ty)
 
 class AstFnDeclaration(AstNode):
@@ -289,10 +293,11 @@ class AstFnDeclaration(AstNode):
             s.set(self.fn_name, Var(UninstantiatedFunction(self)))
 
 class AstFnSignature(AstNode):
-    def __init__(self, parameter_decl_list, is_mut, return_type, decoration):
+    def __init__(self, parameter_decl_list, is_mut, is_extern, return_type, decoration):
         super().__init__(decoration)
         self.parameter_decl_list = parameter_decl_list
         self.is_mut = is_mut
+        self.is_extern = is_extern
         self.return_type = return_type
 
     def walk_dfs(self, fn):
@@ -306,7 +311,7 @@ class AstFnSignature(AstNode):
             ret = self.return_type.resolve(s)
         else: ret = VoidType()
         args = [pdecl.type_ident.resolve(s) for pdecl in self.parameter_decl_list]
-        return FunctionType(ret, args)
+        return FunctionType(ret, args, self.is_extern)
 
 class AstFnInstantiation(AstNode):
     def __init__(self, name, template_params):

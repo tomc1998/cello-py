@@ -1,15 +1,18 @@
 from ctypes import CFUNCTYPE
 import llvmlite.binding as llvm
+import glob
 from llvmlite import ir
+from lang_type import *
 import jit_result
 
 ## LLVM JIT engine
 jit = None
+target_machine = None
 env_stack = [[]]
 
 ## Call this at the start of compilation
 def init_jit():
-    global jit
+    global jit, target_machine
     """
     Create an ExecutionEngine suitable for JIT code generation on
     the host CPU.  The engine is reusable for an arbitrary number of
@@ -21,6 +24,9 @@ def init_jit():
     # And an execution engine with an empty backing module
     backing_mod = llvm.parse_assembly("")
     jit = llvm.create_mcjit_compiler(backing_mod, target_machine)
+
+    # Add libc
+    llvm.load_library_permanently("/lib/x86_64-linux-gnu/libc-2.27.so")
 
 def curr_jit_env():
     global jit
@@ -42,7 +48,6 @@ def add_module(m):
     jit.add_module(binding_module)
     env_stack[len(env_stack)-1].append(binding_module)
 
-
 ## Given a node 'n', jit it and return the result of the expression as an LLVM
 ## value (probably a constant, need to think about this though).
 ## @param gen_preamble_fn - This is called with the jit LLVM module right
@@ -61,7 +66,8 @@ def jit_node(n, ty, scope, gen_preamble_fn):
     entry_block = fn.append_basic_block(name="entry")
     b = ir.IRBuilder(entry_block)
     ret_val = n.codegen(m, scope, b)
-    b.ret(ret_val)
+    if isinstance(internal_ret_ty, VoidType): b.ret_void()
+    else: b.ret(ret_val)
 
     print(m)
 
@@ -76,9 +82,14 @@ def jit_node(n, ty, scope, gen_preamble_fn):
 
     ## Get the main function
     entry_fn_ptr = jit.get_function_address("__jit_entry")
-    entry_fn = CFUNCTYPE(restype=internal_ret_ty.to_c_type())(entry_fn_ptr)
+    print(internal_ret_ty)
+    if isinstance(internal_ret_ty, VoidType):
+        entry_fn = CFUNCTYPE(None)(entry_fn_ptr)
+    else:
+        entry_fn = CFUNCTYPE(restype=internal_ret_ty.to_c_type())(entry_fn_ptr)
     res = entry_fn()
 
     jit.remove_module(binding_module)
 
-    return jit_result.to_llvm_constant(res, ty)
+    if isinstance(internal_ret_ty, VoidType): return None
+    else: return jit_result.to_llvm_constant(res, ty)

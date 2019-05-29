@@ -1,5 +1,6 @@
 extern fn write = (fd: i32, buf: &u8, len: usize);
 
 fn do_write = () {
-  write(0, c"Hello", 5);
+  comptime { write(1, c"Hello, comptime!", 16); 0 }
+  write(1, c"Hello, runtime!", 15);
 }
