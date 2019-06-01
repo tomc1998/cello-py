@@ -1,11 +1,7 @@
 #include <stdio.h>
 
-int add(int a, int b, int c) {
-  return a + b + c;
-}
-
-int __mangle_cello_add(int, int, int);
+int __mangle_sum_natural(int);
 
 int main(int argc, char** argv) {
-  printf("%d\n", __mangle_cello_add(2, 3, 4));
+  printf("Exp sum of natural numbers up to 5 (15): %d\n", __mangle_sum_natural(5));
 }

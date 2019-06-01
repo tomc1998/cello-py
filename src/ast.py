@@ -94,7 +94,7 @@ class AstAssignment(AstNode):
         super().__init__(decoration)
         self.var = var
         self.val = val
-    def get_type(self, s): return VoidType()
+    def get_type(self, s): return None
     def walk_dfs(self, fn):
         self.var.walk_dfs(fn)
         self.val.walk_dfs(fn)
@@ -104,6 +104,76 @@ class AstAssignment(AstNode):
     def run_all_comptime(self, m, s):
         self.var.run_all_comptime(m, s)
         self.val.run_all_comptime(m, s)
+
+class AstRange(AstNode):
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+    def walk_dfs(self, fn):
+        self.start.walk_dfs(fn)
+        self.end.walk_dfs(fn)
+        fn(self)
+    def run_all_comptime(self, m, s):
+        self.start.run_all_comptime(m, s)
+        self.end.run_all_comptime(m, s)
+    def codegen_start(self, m, s, b, exp_ty=None):
+        return self.start.codegen(m, s, b, exp_ty)
+    def codegen_end(self, m, s, b, exp_ty=None):
+        return self.end.codegen(m, s, b, exp_ty)
+
+class AstForLoop(AstNode):
+    def __init__(self, iter_var_name, iter_expr, body, index_var_name = None):
+        self.iter_var_name = iter_var_name
+        self.iter_expr = iter_expr
+        self.body = body
+        self.index_var_name = index_var_name
+    def get_type(self, s): return None
+    def walk_dfs(self, fn):
+        self.iter_expr.walk_dfs(fn)
+        self.body.walk_dfs(fn)
+        fn(self)
+    def run_all_comptime(self, m, s):
+        self.iter_expr.run_all_comptime(m, s)
+        self.body.run_all_comptime(m, s)
+    def codegen(self, m, s, b, exp_ty=None):
+        if isinstance(self.iter_expr, AstRange):
+            iter_var_type = IntType(64, True)
+            ## Alloc iter var
+            iter_var = b.alloca(iter_var_type.to_llvm_type());
+            # Init iter var
+            b.store(self.iter_expr.codegen_start(m, s, b, iter_var_type), iter_var)
+            # Get end point
+            iter_end = self.iter_expr.codegen_end(m, s, b, iter_var_type)
+
+            body_block = b.append_basic_block()
+            after_block = b.append_basic_block()
+            cond_block = b.append_basic_block()
+
+            ## Create body subscope
+            body_subscope = s.subscope()
+            body_subscope.set(self.iter_var_name, Var(iter_var_type, val=iter_var))
+
+            ## Generate precondition
+            cond = b.icmp_signed("<", b.load(iter_var), iter_end)
+            b.cbranch(cond, body_block, after_block)
+
+            b.position_at_start(body_block)
+            ## Gen body with body subscope
+            self.body.codegen(m, body_subscope, b)
+            ## Increment iter var, assume end > start
+            curr_iter_var = b.load(iter_var)
+            new_iter_var = b.add(curr_iter_var, ir.Constant(iter_var_type.to_llvm_type(), 1))
+            b.store(new_iter_var, iter_var)
+            ## Cond block
+            b.branch(cond_block)
+            b.position_at_start(cond_block)
+            cond = b.icmp_signed("<", new_iter_var, iter_end)
+            b.cbranch(cond, body_block, after_block)
+            b.position_at_end(after_block)
+
+
+
+        else: assert False, "Unimpl"
 
 class AstStructMemberVar(AstNode):
     def __init__(self, name, type_expr):
@@ -130,6 +200,40 @@ class AstStructDefinition(AstNode):
     def get_type(self, s):
         resolved_fields = list(map(lambda x: x.get_type(s), self.fields))
         return KindType(StructType(StructData(resolved_fields)))
+
+class AstVarDeclaration(AstNode):
+    def __init__(self, name, declared_type, val, is_export=False, is_comptime=False, is_mut=False):
+        self.name = name
+        self.declared_type = declared_type
+        self.val = val
+        self.is_export = is_export
+        self.is_comptime = is_comptime
+        self.is_mut = is_mut
+    def walk_dfs(self, fn):
+        if self.declared_type: self.declared_type.walk_dfs(fn)
+        self.val.walk_dfs(fn)
+        fn(self)
+    def run_all_comptime(self, m, s):
+        if self.declared_type: self.declared_type.run_all_comptime(m, s)
+        self.val.run_all_comptime(m, s)
+    def get_type(self, s):
+        return None
+    def codegen(self, m, s, b, exp_ty=None):
+        # Figure out the type
+        var_type = None
+        if self.declared_type: var_type = self.declared_type.resolve(s)
+        else: var_type = self.val.get_type(s)
+        # Coerce val?
+        actual_val = None
+        if self.declared_type:
+            actual_val = self.val.codegen(m, s, b, exp_ty=var_type)
+        else:
+            actual_val = self.val.codegen(m, s, b)
+        ## Alloc var on stack
+        alloca = b.alloca(var_type.to_llvm_type())
+        ## Store val
+        b.store(actual_val, alloca)
+        s.set(self.name, Var(var_type, val=alloca, is_mutable=self.is_mut, is_comptime=self.is_comptime, name=self.name))
 
 class AstTypeDeclaration(AstNode):
     def __init__(self, name, definition, is_export=False):

@@ -276,7 +276,7 @@ def parse_var_declaration(l):
     children.append(parse_identifier(l))
     assert_not_empty(l, "Expected ':' or '=', found EOF'")
     if l.peek() and l.peek()[1] == ":":
-        children.append(ParseNode(Term, l.next(), l.sl()))
+        children.append(ParseNode(TERM, l.next(), l.sl()))
         children.append(parse_expression(l))
     assert_val(l, "=")
     children.append(ParseNode(TERM, l.next(), l.sl()))
@@ -364,8 +364,6 @@ def parse_expression(l, no_right_angle=False):
         ## As a bonus, don't parse assignment ops here
         elif l.peek()[0] == "op" and not is_assignment_op(l.peek()) and (not no_right_angle or l.peek()[1] != ">"):
             lrec = parse_binary_expression(l, lrec)
-        elif is_assignment_op(l.peek()):
-            lrec = parse_assignment(l, lrec)
         else: break
         added_lrec = True
 
@@ -540,7 +538,11 @@ def parse_statement(l):
         elif l.peek()[1] == "comptime" and l.peek(1) and l.peek(1)[1] == "for":
             children.append(parse_comptime_for_loop(l))
         else:
-            children.append(parse_expression(l))
+            expr = parse_expression(l)
+            if l.peek() and l.peek()[1] == "=":
+                expr = parse_assignment(l, lrec=expr)
+            children.append(expr);
+
     return ParseNode(NTERM_STATEMENT, children, l.sl())
 
 def parse_statement_or_preprocessor(l):

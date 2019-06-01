@@ -172,6 +172,30 @@ def create_comptime(p):
     assert p.is_nterm(NTERM_COMPTIME)
     return AstComptime(create_statement_list(p.tok_val[1]), p.sl)
 
+def create_for_loop(p):
+    assert p.is_nterm(NTERM_FOR_LOOP)
+    iter_var_name_0 = p.tok_val[1].tok_val[0].tok_val[1]
+    iter_var_name_1 = None
+    ii = 2
+    if p.tok_val[ii].is_term(","):
+        ii += 1
+        iter_var_name_1 = p.tok_val[ii].tok_val[0].tok_val[1]
+        ii += 1
+    ii += 1
+    iter_expr = create_expression(p.tok_val[ii])
+    ii += 1
+    body = create_expression(p.tok_val[ii])
+    if not iter_var_name_1:
+        return AstForLoop(iter_var_name_0, iter_expr, body)
+    else:
+        return AstForLoop(iter_var_name_1, iter_expr, body, index_var_name=iter_var_name_0)
+
+def create_range(p):
+    assert p.is_nterm(NTERM_RANGE)
+    start = create_expression(p.tok_val[0])
+    end = create_expression(p.tok_val[2])
+    return AstRange(start, end)
+
 def create_expression(p):
     while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
     if p.is_nterm(NTERM_IDENTIFIER):
@@ -188,10 +212,10 @@ def create_expression(p):
         return create_literal(p)
     elif p.is_nterm(NTERM_QUALIFIED_NAME):
         return create_qualified_name(p)
-    elif p.is_nterm(NTERM_ASSIGNMENT):
-        return create_assignment(p)
     elif p.is_nterm(NTERM_COMPTIME):
         return create_comptime(p)
+    elif p.is_nterm(NTERM_RANGE):
+        return create_range(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 
@@ -329,6 +353,34 @@ def create_type_declaration(p):
     return AstTypeDeclaration(typename, definition, is_export=is_export)
 
 def create_var_declaration(p):
+    assert p.is_nterm(NTERM_VAR_DECLARATION)
+    ii = 0
+    is_export = False
+    if p.tok_val[ii].is_term("export"):
+        is_export = True
+        ii += 1
+    is_comptime = False
+    if p.tok_val[ii].is_term("comptime"):
+        is_comptime = True
+        ii += 1
+    is_mut = False
+    if p.tok_val[ii].is_term("mut"):
+        is_mut = True
+    else:
+        assert p.tok_val[ii].is_term("var")
+    ii += 1
+    name = p.tok_val[ii].tok_val[0].tok_val[1]
+    ii += 1
+    declared_type = None
+    if p.tok_val[ii].is_term(":"):
+        ii += 1
+        declared_type = create_type_ident(p.tok_val[ii])
+        ii += 1
+    assert p.tok_val[ii].is_term("=")
+    ii += 1
+    val = create_expression(p.tok_val[ii])
+    ii += 1
+    return AstVarDeclaration(name, declared_type, val, is_export=is_export, is_comptime=is_comptime, is_mut=is_mut)
 
 def create_fn_instantiation(p):
     assert p.is_nterm(NTERM_FN_INSTANTIATION)
@@ -338,6 +390,8 @@ def create_statement(p):
     assert p.is_nterm(NTERM_STATEMENT)
     if p.tok_val[0].is_nterm(NTERM_FN_DECLARATION):
         return create_fn_declaration(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_FOR_LOOP):
+        return create_for_loop(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_EXTERN_FN_DECLARATION):
         return create_extern_fn_declaration(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_FN_INSTANTIATION):
@@ -348,6 +402,8 @@ def create_statement(p):
         return create_var_declaration(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_EXPRESSION):
         return create_expression(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_ASSIGNMENT):
+        return create_assignment(p.tok_val[0])
     assert False
 
 def create_statement_or_processor(p):

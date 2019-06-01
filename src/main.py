@@ -44,7 +44,7 @@ try:
     codegen = ast.codegen(module, scope, None)
 
     ##print(codegen)
-    ##print(module)
+    print(module)
 
     # Create final obj file with the module
 
