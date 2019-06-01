@@ -243,6 +243,46 @@ def parse_comptime(l):
     assert_val(l, "comptime")
     return ParseNode(NTERM_COMPTIME, [ ParseNode(TERM, l.next(), l.sl()), parse_statement_list(l) ], l.sl())
 
+def parse_range(l, lrec=None):
+    children = [ lrec ]
+    assert_val(l, "..")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    return ParseNode(NTERM_RANGE, children, l.sl())
+
+def parse_for_loop(l):
+    children = []
+    assert_val(l, "for")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_identifier(l))
+    if l.peek() and l.peek()[1] == ",":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        children.append(parse_identifier(l))
+    assert_val(l, "in")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    children.append(parse_expression(l))
+    return ParseNode(NTERM_FOR_LOOP, children, l.sl())
+
+def parse_var_declaration(l):
+    children = []
+    if l.peek() and l.peek()[1] == "export":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+    if l.peek() and l.peek()[1] == "comptime":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+    if l.peek() and l.peek()[1] != "var" and l.peek()[1] != "mut":
+        raise ParseError(l, "Expected 'var' or 'mut', got '" + l.next()[1] + "'")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_identifier(l))
+    assert_not_empty(l, "Expected ':' or '=', found EOF'")
+    if l.peek() and l.peek()[1] == ":":
+        children.append(ParseNode(Term, l.next(), l.sl()))
+        children.append(parse_expression(l))
+    assert_val(l, "=")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    return ParseNode(NTERM_VAR_DECLARATION, children, l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")

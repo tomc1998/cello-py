@@ -11,7 +11,7 @@ target_machine = None
 env_stack = [[]]
 
 ## Call this at the start of compilation
-def init_jit():
+def init_jit(libc_path):
     global jit, target_machine
     """
     Create an ExecutionEngine suitable for JIT code generation on
@@ -26,7 +26,7 @@ def init_jit():
     jit = llvm.create_mcjit_compiler(backing_mod, target_machine)
 
     # Add libc
-    llvm.load_library_permanently("/lib/x86_64-linux-gnu/libc-2.27.so")
+    llvm.load_library_permanently(libc_path)
 
 def curr_jit_env():
     global jit

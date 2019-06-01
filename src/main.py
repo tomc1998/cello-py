@@ -10,17 +10,23 @@ import lexer
 import parser
 import create_ast
 import jit
+import argparse
 from scope import Scope
+
+arg_parser = argparse.ArgumentParser(description='Process some integers.')
+arg_parser.add_argument('filename', type=str, help='the .cel file to compile.')
+arg_parser.add_argument('--libc', required=False, default="/lib/x86_64-linux-gnu/libc-2.27.so", type=str, help='location of shared libc for the JIT.')
+args = arg_parser.parse_args()
 
 ## Init everything
 llvmlite.binding.initialize()
 llvmlite.binding.initialize_native_target()
 llvmlite.binding.initialize_native_asmprinter()
-jit.init_jit()
+jit.init_jit(args.libc)
 
 ## Open the file
 buf = ""
-f = open("test/extern_fn.cel", "r")
+f = open(args.filename, "r")
 for line in f: buf += line
 
 ## Pass the tokens into the parser, get a parse tree

@@ -328,6 +328,8 @@ def create_type_declaration(p):
     definition = create_type_definition(p.tok_val[ii])
     return AstTypeDeclaration(typename, definition, is_export=is_export)
 
+def create_var_declaration(p):
+
 def create_fn_instantiation(p):
     assert p.is_nterm(NTERM_FN_INSTANTIATION)
     return AstFnInstantiation(p.tok_val[1].term(), create_template_parameter_list(p.tok_val[2]))
@@ -342,6 +344,8 @@ def create_statement(p):
         return create_fn_instantiation(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_TYPE_DECLARATION):
         return create_type_declaration(p.tok_val[0])
+    elif p.tok_val[0].is_nterm(NTERM_VAR_DECLARATION):
+        return create_var_declaration(p.tok_val[0])
     elif p.tok_val[0].is_nterm(NTERM_EXPRESSION):
         return create_expression(p.tok_val[0])
     assert False
