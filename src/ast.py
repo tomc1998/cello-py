@@ -229,11 +229,16 @@ class AstVarDeclaration(AstNode):
             actual_val = self.val.codegen(m, s, b, exp_ty=var_type)
         else:
             actual_val = self.val.codegen(m, s, b)
-        ## Alloc var on stack
-        alloca = b.alloca(var_type.to_llvm_type())
-        ## Store val
-        b.store(actual_val, alloca)
-        s.set(self.name, Var(var_type, val=alloca, is_mutable=self.is_mut, is_comptime=self.is_comptime, name=self.name))
+        var_alloc = None
+        ## If we're in global scope, then b == None. If so, create a global var.
+        if not b:
+            var_alloc = ir.GlobalVariable(m, var_type.to_llvm_type(), self.name)
+            var_alloc.initializer = actual_val
+        else:
+            ## Otherwise, alloc var on stack
+            var_alloc = b.alloca(var_type.to_llvm_type())
+            b.store(actual_val, var_alloc)
+        s.set(self.name, Var(var_type, val=var_alloc, is_mutable=self.is_mut, is_comptime=self.is_comptime, name=self.name))
 
 class AstTypeDeclaration(AstNode):
     def __init__(self, name, definition, is_export=False):

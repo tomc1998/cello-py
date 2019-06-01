@@ -1,3 +1,10 @@
+mut counter = 0
+
+fn next_num = () -> i32 {
+  counter = counter + 1;
+  counter
+}
+
 fn sum_natural = (n: i32) -> i32 {
   mut sum = 0;
   for x in 0..n+1 { sum = sum + x; }
