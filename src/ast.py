@@ -4,7 +4,9 @@ from parser import *
 from lang_type import *
 from mangle import mangle_function, mangle_global
 from scope import Var
+import ctypes
 import jit
+import jit_result
 
 class AstNode:
     def walk_dfs(self, fn): fn(self)
@@ -94,7 +96,7 @@ class AstAssignment(AstNode):
         super().__init__(decoration)
         self.var = var
         self.val = val
-    def get_type(self, s): return None
+    def get_type(self, s): return VoidType()
     def walk_dfs(self, fn):
         self.var.walk_dfs(fn)
         self.val.walk_dfs(fn)
@@ -127,7 +129,7 @@ class AstForLoop(AstNode):
         self.iter_expr = iter_expr
         self.body = body
         self.index_var_name = index_var_name
-    def get_type(self, s): return None
+    def get_type(self, s): return VoidType()
     def walk_dfs(self, fn):
         self.iter_expr.walk_dfs(fn)
         self.body.walk_dfs(fn)
@@ -216,29 +218,34 @@ class AstVarDeclaration(AstNode):
     def run_all_comptime(self, m, s):
         if self.declared_type: self.declared_type.run_all_comptime(m, s)
         self.val.run_all_comptime(m, s)
-    def get_type(self, s):
-        return None
+    def get_type(self, s): return VoidType()
     def codegen(self, m, s, b, exp_ty=None):
         # Figure out the type
         var_type = None
         if self.declared_type: var_type = self.declared_type.resolve(s)
         else: var_type = self.val.get_type(s)
-        # Coerce val?
-        actual_val = None
-        if self.declared_type:
-            actual_val = self.val.codegen(m, s, b, exp_ty=var_type)
+        val = None
+        ## If comptime, just jit the value and get as a python value, for
+        ## better comptime inspection
+        if self.is_comptime:
+            val = jit.jit_node(self.val, s.subscope())
         else:
-            actual_val = self.val.codegen(m, s, b)
-        var_alloc = None
-        ## If we're in global scope, then b == None. If so, create a global var.
-        if not b:
-            var_alloc = ir.GlobalVariable(m, var_type.to_llvm_type(), self.name)
-            var_alloc.initializer = actual_val
-        else:
-            ## Otherwise, alloc var on stack
-            var_alloc = b.alloca(var_type.to_llvm_type())
-            b.store(actual_val, var_alloc)
-        s.set(self.name, Var(var_type, val=var_alloc, is_mutable=self.is_mut, is_comptime=self.is_comptime, name=self.name))
+            # Coerce val?
+            actual_val = None
+            if self.declared_type:
+                actual_val = self.val.codegen(m, s, b, exp_ty=var_type)
+            else:
+                actual_val = self.val.codegen(m, s, b)
+            val = None
+            ## If we're in global scope, then b == None. If so, create a global var.
+            if not b:
+                val = ir.GlobalVariable(m, var_type.to_llvm_type(), self.name)
+                val.initializer = actual_val
+            else:
+                ## Otherwise, alloc var on stack
+                val = b.alloca(var_type.to_llvm_type())
+                b.store(actual_val, val)
+        s.set(self.name, Var(var_type, val=val, is_mutable=self.is_mut, is_comptime=self.is_comptime, name=self.name))
 
 class AstTypeDeclaration(AstNode):
     def __init__(self, name, definition, is_export=False):
@@ -293,9 +300,9 @@ class AstComptime(AstNode):
         self.body.run_all_comptime(m, s)
 
         body = self.body
-        def preamble(m):
+        def preamble(m, s):
             ## Walk the body & find all fncalls so we can fwd decl them all
-            def walk_fn(x):
+            def fwd_decl_walk_fn(x):
                 if isinstance(x, AstFnCall):
                     ## Fwd decl this function
                     type_parameters = []
@@ -306,14 +313,50 @@ class AstComptime(AstNode):
                     if not internal_fnty.is_extern:
                         name = mangle_function(name, type_parameters)
                     ir.Function(m, internal_fnty.to_llvm_type(), name=name)
-            body.walk_dfs(walk_fn)
+            body.walk_dfs(fwd_decl_walk_fn)
+
+            ## Now walk the body & find all references to comptime variables,
+            ## if they're comptime re-declare them in s as non-comptime (so
+            ## they can be used)
+            def comptime_var_walk_fn(x):
+                if isinstance(x, VarIdent):
+                    name = x.parse_node.tok_val[0].tok_val[1]
+                    var = s.lookup(name)
+                    if var and var.is_comptime:
+                        ## It's fine to .set here, because `s` is a subscope
+                        ## passed into jit_node(). It'll only shadow the
+                        ## variable.
+                        cloned = var.clone()
+                        ty = cloned.var_type.to_llvm_type()
+                        ## Create global variable
+                        global_var = ir.GlobalVariable(m, ty, name)
+                        global_var.initializer = cloned.val
+                        cloned.val = global_var
+                        cloned.is_comptime = False
+                        s.set(name, cloned)
+            body.walk_dfs(comptime_var_walk_fn)
+
+        ## Post jit FN for after the jit.
+        def post_jit_fn(jit):
+            ## Find the global vars
+            def comptime_var_walk_fn(x):
+                if isinstance(x, VarIdent):
+                    name = x.parse_node.tok_val[0].tok_val[1]
+                    var = s.lookup_exact(name)
+                    if var and var.is_comptime:
+                        ## Find this var in the jit & assign it to the var
+                        var_c_type = var.var_type.to_c_type()
+                        addr = jit.get_global_value_address(var.name)
+                        ptr = ctypes.cast(addr, ctypes.POINTER(var_c_type))
+                        var.val = ptr.contents.value
+            body.walk_dfs(comptime_var_walk_fn)
 
         subscope = s.subscope();
         ty = self.body.get_type(s)
-        jit_val = jit.jit_node(self.body, ty, subscope, preamble)
+        jit_val = jit_result.to_llvm_constant(jit.jit_node(self.body, subscope, preamble, post_jit_fn), ty)
         self.computed = jit_val
     def codegen(self, m, s, b, exp_ty=None):
-        assert self.computed != None
+        if not self.computed: return None
         ty = self.body.get_type(s)
         if isinstance(ty, VoidType): return
         return gen_coercion(b, self.computed, ty, exp_ty)
@@ -334,7 +377,7 @@ class AstFnDeclaration(AstNode):
         self.body.walk_dfs(fn)
         fn(self)
 
-    def get_type(self, s): return None
+    def get_type(self, s): return VoidType()
 
     def run_all_comptime(self, m, s): pass
 
@@ -427,7 +470,7 @@ class AstFnInstantiation(AstNode):
         self.name = name
         self.template_params = template_params
 
-    def get_type(self, s): return None
+    def get_type(self, s): return VoidType()
 
     def walk_dfs(self, fn):
         self.template_params.walk_dfs(fn)
@@ -556,7 +599,7 @@ class AstExternFnDeclaration(AstNode):
     def walk_dfs(self, fn):
         self.fn_signature.walk_dfs(fn)
         fn(self)
-    def get_type(self, s): return None
+    def get_type(self, s): return VoidType()
     def run_all_comptime(self, m, s): pass
     def codegen(self, m, s, b, exp_ty=None):
         internal_fnty = self.fn_signature.codegen(s)
@@ -741,10 +784,15 @@ class VarIdent(Resolveable):
     def get_type(self, s):
         return self.resolve(s).var_type
     def codegen(self, m, s, b, exp_ty=None, lval=False):
-        if lval:
-            return gen_coercion(b, self.resolve(s).val, self.get_type(s), exp_ty)
+        resolved = self.resolve(s)
+        if resolved.is_comptime:
+            # If it's a comptime var, then .val will just be a constant, in which case don't bother load.
+            return gen_coercion(b, resolved.val, self.get_type(s), exp_ty)
         else:
-            return gen_coercion(b, b.load(self.resolve(s).val, name=self.resolve(s).name), self.get_type(s), exp_ty)
+            if lval:
+                return gen_coercion(b, resolved.val, self.get_type(s), exp_ty)
+            else:
+                return gen_coercion(b, b.load(resolved.val, name=self.resolve(s).name), self.get_type(s), exp_ty)
 
 class BinaryExpression(AstNode):
     def run_all_comptime(self, m, s):

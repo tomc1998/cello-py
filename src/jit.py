@@ -53,12 +53,14 @@ def add_module(m):
 ## @param gen_preamble_fn - This is called with the jit LLVM module right
 ## before creating the entry function for the module. Use this to insert any
 ## declarations that the node needs to function.
-def jit_node(n, ty, scope, gen_preamble_fn):
+## @param post_jit_fn - called after jitting. Passed the ExecutionEngine. This
+## is useful for examining global state post-jit.
+def jit_node(n, scope, gen_preamble_fn=None, post_jit_fn=None):
     global jit
     assert jit, "JIT not initialized"
     ## Create the IR module, gen the module
     m = ir.Module(name="jit")
-    gen_preamble_fn(m)
+    if gen_preamble_fn: gen_preamble_fn(m, scope)
     internal_ret_ty = n.get_type(scope)
     ret_ty = internal_ret_ty.to_llvm_type()
     fnty = ir.FunctionType(ret_ty, ())
@@ -82,14 +84,15 @@ def jit_node(n, ty, scope, gen_preamble_fn):
 
     ## Get the main function
     entry_fn_ptr = jit.get_function_address("__jit_entry")
-    print(internal_ret_ty)
     if isinstance(internal_ret_ty, VoidType):
         entry_fn = CFUNCTYPE(None)(entry_fn_ptr)
     else:
         entry_fn = CFUNCTYPE(restype=internal_ret_ty.to_c_type())(entry_fn_ptr)
     res = entry_fn()
 
+    if post_jit_fn: post_jit_fn(jit)
+
     jit.remove_module(binding_module)
 
     if isinstance(internal_ret_ty, VoidType): return None
-    else: return jit_result.to_llvm_constant(res, ty)
+    else: return res

@@ -537,6 +537,8 @@ def parse_statement(l):
             children.append(parse_for_loop(l))
         elif l.peek()[1] == "comptime" and l.peek(1) and l.peek(1)[1] == "for":
             children.append(parse_comptime_for_loop(l))
+        elif l.peek()[1] == "comptime" and l.peek(1) and (l.peek(1)[1] == "var" or l.peek(1)[1] == "mut"):
+            children.append(parse_var_declaration(l))
         else:
             expr = parse_expression(l)
             if l.peek() and l.peek()[1] == "=":
