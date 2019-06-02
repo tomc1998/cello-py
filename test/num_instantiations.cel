@@ -1,0 +1,11 @@
+comptime mut num_foo_instantiations = 0
+
+fn foo<T: $type> = () {
+  comptime { num_foo_instantiations = num_foo_instantiations + 1; }
+  /* Do stuff here... */
+}
+
+instantiate foo<i32>
+instantiate foo<u8>
+
+fn get_num_foo_instantiations = () -> i32 num_foo_instantiations
