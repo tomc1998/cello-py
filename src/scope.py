@@ -56,6 +56,7 @@ class Scope:
     ## Use lookup_exact for exact symbol table values.
     def lookup(self, name, is_comptime=None):
         local = self.lookup_exact(name, is_comptime)
+        if not local: return None
         if local.is_comptime and not is_comptime:
             ## If the var is comptime but we're not in a comptime context,
             ## then the value is a python value. We need to create an LLVM

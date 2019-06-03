@@ -128,11 +128,13 @@ def create_function_call(p):
     if p.tok_val[0].tok_val[0].is_nterm(NTERM_IDENTIFIER):
         function_name = Resolveable(p.tok_val[0], p.sl)
         template_params = None
+    elif p.tok_val[0].is_nterm(NTERM_QUALIFIED_NAME):
+        function_name = create_qualified_name(p.tok_val[0])
+        template_params = None
     else:
         assert p.tok_val[0].is_nterm(NTERM_QUALIFIED_TYPE)
         function_name = Resolveable(p.tok_val[0].tok_val[0], p.sl)
         template_params = create_template_parameter_list(p.tok_val[0].tok_val[2])
-
     param_list = create_parameter_list(p.tok_val[1])
     return AstFnCall(function_name, template_params, param_list, p.sl)
 
@@ -303,8 +305,8 @@ def create_struct_field(p):
             assert False, "Unimpl default value"
         return AstStructMemberVar(field_name, field_type)
     elif p.tok_val[ii].is_nterm(NTERM_FN_DECLARATION):
-        print ("Unimpl member fn")
-        return None
+        fn_declaration = create_fn_declaration(p.tok_val[ii])
+        return AstStructFnDeclaration(fn_declaration, p.sl)
     else:
         assert False
 

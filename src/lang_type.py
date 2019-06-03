@@ -3,16 +3,6 @@ from llvmlite import ir
 from typing import List
 import copy
 
-class PtrType:
-    def __init__(self, val):
-        self.val = val
-    def to_llvm_type(self):
-        return self.val.to_llvm_type().as_pointer()
-
-    def eq(self, other):
-        if not isinstance(other, PtrType): return False
-        return self.val.eq(other.val)
-
 class Type:
     ## @param num_ptr - Levels of indirection
     def __init__(self, name):
@@ -20,6 +10,17 @@ class Type:
 
     ## Returns a copy of this type, but with an additional level of indirection
     def ptr(self): return PtrType(self)
+
+class PtrType(Type):
+    def __init__(self, val):
+        self.val = val
+        self.name = "&" + self.val.name
+    def to_llvm_type(self):
+        return self.val.to_llvm_type().as_pointer()
+
+    def eq(self, other):
+        if not isinstance(other, PtrType): return False
+        return self.val.eq(other.val)
 
 class KindType(Type):
     ## @param val - A reference to the type this references
@@ -41,6 +42,9 @@ class StructField:
     def __init__(self, field_name, field_type: Type):
         self.field_name = field_name
         self.field_type = field_type
+
+    def is_function(self):
+        return isinstance(self.field_type, UninstantiatedFunction)
 
 class StructData:
     def __init__(self, fields: List[StructField]):
@@ -67,8 +71,15 @@ class StructType(Type):
             if not self.data.fields[ii].field_type.eq(other.data.fields[ii].field_type): return False
         return True
 
+    ## Loop over all function fields and 'connect' their 'owning_struct_type'
+    ## params to `self`.
+    def connect_member_functions(self):
+        for f in filter(lambda x: x.is_function(), self.data.fields):
+            f.field_type.fn_declaration.fn_signature.receiver = self
+
     def to_llvm_type(self):
-        return ir.LiteralStructType(list(map(lambda x : x.field_type.to_llvm_type(), self.data.fields)))
+        return ir.LiteralStructType(list(map(lambda x : x.field_type.to_llvm_type(),
+                                             filter(lambda x: not x.is_function(), self.data.fields))))
 
 class IntType(Type):
     def __init__(self, num_bits: int, is_signed: bool):
@@ -114,8 +125,11 @@ class FunctionType(Type):
         return ir.FunctionType(ret, tuple(args))
 
 class UninstantiatedFunction(Type):
-    ## @param fn_declaration - an AstFnDeclaration for instantiating this at a later date
+    ## @param fn_declaration - an AstFnDeclaration for instantiating this at a
+    ## later date. Also used for all struct methods, just since it works out
+    ## better, even if they have no template params.
     def __init__(self, fn_declaration):
+        self.name = fn_declaration.name
         self.fn_declaration = fn_declaration
 
 class BoolType(Type):

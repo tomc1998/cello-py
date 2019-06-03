@@ -1,0 +1,9 @@
+type Foo = struct {
+  a: i32,
+  b: i32,
+  fn add = () -> i32 a + b
+}
+
+fn add_foo = (f: &Foo) -> i32 {
+  f.add()
+}

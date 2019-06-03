@@ -177,6 +177,18 @@ class AstForLoop(AstNode):
 
         else: assert False, "Unimpl"
 
+class AstStructFnDeclaration(AstNode):
+    def __init__(self, fn_declaration, decoration):
+        super().__init__(decoration)
+        self.fn_declaration = fn_declaration
+
+    def walk_dfs(self, fn):
+        self.fn_declaration.walk_dfs(fn)
+        fn(self)
+
+    def get_type(self, s):
+        return StructField(self.fn_declaration.name, UninstantiatedFunction(self.fn_declaration))
+
 class AstStructMemberVar(AstNode):
     def __init__(self, name, type_expr):
         self.name = name
@@ -201,7 +213,9 @@ class AstStructDefinition(AstNode):
 
     def get_type(self, s):
         resolved_fields = list(map(lambda x: x.get_type(s), self.fields))
-        return KindType(StructType(StructData(resolved_fields)))
+        struct_type = StructType(StructData(resolved_fields))
+        struct_type.connect_member_functions()
+        return KindType(struct_type)
 
 class AstVarDeclaration(AstNode):
     def __init__(self, name, declared_type, val, is_export=False, is_comptime=False, is_mut=False):
@@ -362,9 +376,9 @@ class AstComptime(AstNode):
         return gen_coercion(b, self.computed, ty, exp_ty)
 
 class AstFnDeclaration(AstNode):
-    def __init__(self, fn_name, template_parameter_decl_list, fn_signature, body, decoration):
+    def __init__(self, name, template_parameter_decl_list, fn_signature, body, decoration):
         super().__init__(decoration)
-        self.fn_name = fn_name
+        self.name = name
         self.template_parameter_decl_list = template_parameter_decl_list
         self.fn_signature = fn_signature
         self.body = body
@@ -396,14 +410,22 @@ class AstFnDeclaration(AstNode):
 
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(s)
+
+        ## Create a list of tuples of names to types of args
+        all_args = copy.deepcopy(self.fn_signature.parameter_decl_list)
+        if self.fn_signature.receiver: all_args.insert(0, self.fn_signature.receiver.ptr())
+        all_args = zip(map(lambda x: x.name if hasattr(x, 'name') else 'self', all_args), internal_fnty.args)
+        all_args = list(map(lambda x: (x[0], Var(x[1], name=x[0])), all_args))
+
         ## Mangle the func name
-        mangled = mangle_function(self.fn_name, list(map(lambda x: x.val, type_parameters)))
+        mangled = mangle_function(self.name, list(map(lambda x: x.val, type_parameters)))
 
         ## Check if we have an instantiation cached
         if mangled in self.instantiated: return self.instantiated[mangled]
 
         ## Instantiate, so run the comptime stuff for the body in a subscope
         comptime_subscope = s.subscope()
+        for name,var in all_args: comptime_subscope.set(name,var)
         jit.push_jit_env()
         jit.add_module(m)
         self.body.run_all_comptime(m, comptime_subscope)
@@ -417,15 +439,26 @@ class AstFnDeclaration(AstNode):
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)
 
+        ## If we have a receiver, insert the receiver's fields into the scope
+        if self.fn_signature.receiver:
+            receiver_val = fn.args[0]
+            for ii, f in enumerate(filter(lambda x: not x.is_function(), self.fn_signature.receiver.data.fields)):
+                ## Create GEP
+                gep = b.gep(receiver_val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ii)])
+                s.set(f.field_name, Var(f.field_type, val=gep, name="self." + f.field_name))
+
         ## Insert args into the scope, storing as allocas
-        args = zip(fn.args, self.fn_signature.parameter_decl_list)
-        for_scope = map(lambda x : (x[1].name, Var(x[1].type_ident.resolve(s), name=x[1].name, val=x[0])), args)
-        for name, var in for_scope:
+        ## Map fn arg LLVM values to previous arg list
+        all_args = map(lambda x: (x[1][0], Var(x[1][1].var_type, val=x[0], name=x[1][1].name)), zip(fn.args, all_args))
+        for name, var in all_args:
             llvm_ty = var.var_type.to_llvm_type()
             alloca = b.alloca(llvm_ty, name=name)
             b.store(var.val, alloca)
             var.val = alloca
             s.set(name, var)
+            # Set the receiver val if this is the first arg
+            if name == 'self': receiver_val = var.val
+
 
         if internal_fnty.return_type.eq(VoidType()):
             self.body.codegen(m, s, b, exp_ty=internal_fnty.return_type)
@@ -442,15 +475,17 @@ class AstFnDeclaration(AstNode):
             self.instantiate(m, s, [])
         else:
             ## Add as uninstantiated
-            s.set(self.fn_name, Var(UninstantiatedFunction(self)))
+            s.set(self.name, Var(UninstantiatedFunction(self)))
 
 class AstFnSignature(AstNode):
-    def __init__(self, parameter_decl_list, is_mut, is_extern, return_type, decoration):
+    # @param receiver - The type of the receiver, None if this isn't a member fn
+    def __init__(self, parameter_decl_list, is_mut, is_extern, return_type, decoration, receiver=None):
         super().__init__(decoration)
         self.parameter_decl_list = parameter_decl_list
         self.is_mut = is_mut
         self.is_extern = is_extern
         self.return_type = return_type
+        self.receiver = receiver
 
     def walk_dfs(self, fn):
         self.parameter_decl_list.walk_dfs(fn)
@@ -463,6 +498,8 @@ class AstFnSignature(AstNode):
             ret = self.return_type.resolve(s)
         else: ret = VoidType()
         args = [pdecl.type_ident.resolve(s) for pdecl in self.parameter_decl_list]
+        if self.receiver:
+            args.insert(0, self.receiver.ptr())
         return FunctionType(ret, args, self.is_extern)
 
 class AstFnInstantiation(AstNode):
@@ -504,22 +541,38 @@ class AstFnCall(AstNode):
         ## since we need to run the comptime stuff on the called function now -
         ## otherwise the module will be half way through a function when we
         ## JIT, and we'll get an error parsing the module
-        fn = self.find_function(s)
+        fn_type = self.find_function_type(s)
         ## If we can't find the function, chances are this is recursive, & we
         ## don't (currently) support comptime eval for recursive calls. This
         ## would only make sense if we're instantiating functions
         ## recursively... not sure if we wantt his / need this, either way
         ## sounds like a faff. Just ignore for now.
         ## TODO if recursive comptime evaluation is needed, needs to be put in here
-        if not fn: return
-        if isinstance(fn.var_type, UninstantiatedFunction):
+        if not fn_type: return
+        if isinstance(fn_type, UninstantiatedFunction):
             internal_fnty = self.get_internal_fnty(s)
             concrete_template_params = list(map(lambda x: x.get_type(s), self.template_params))
-            fn.var_type.fn_declaration.instantiate(m, s, concrete_template_params)
+            fn_type.fn_declaration.instantiate(m, s, concrete_template_params)
+
+    def find_function_type(self, s):
+        if isinstance(self.name, AstQualifiedName):
+            return self.name.get_type(s)
+        resolved = self.name.resolve(s)
+        if not resolved:
+            ## Try the mangled name
+            type_parameters = []
+            if self.template_params:
+                type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
+            return s.lookup(mangled).var_type;
+        else: return resolved
 
     ## Find the associated function Var
-    def find_function(self, s):
-        resolved = self.name.resolve(s)
+    def find_function(self, m, s, b):
+        if isinstance(self.name, AstQualifiedName):
+            resolved = self.name.resolve(m, s, b)
+        else:
+            resolved = self.name.resolve(s)
         if not resolved:
             ## Try the mangled name
             type_parameters = []
@@ -530,8 +583,8 @@ class AstFnCall(AstNode):
         else: return resolved
 
     def get_internal_fnty(self, s):
-        resolved = self.find_function(s)
-        if isinstance(resolved.var_type, UninstantiatedFunction):
+        resolved_type = self.find_function_type(s)
+        if isinstance(resolved_type, UninstantiatedFunction):
             ## Find the type by applying the template parameters
             subscope = s.subscope()
 
@@ -540,22 +593,30 @@ class AstFnCall(AstNode):
             ## First figure out type params and add them all to the scope before
             ## trying to gen the fn signature (since returntype / args might depend
             ## on the template params)
-            if resolved.var_type.fn_declaration.template_parameter_decl_list:
-                for i, f in enumerate(resolved.var_type.fn_declaration.template_parameter_decl_list):
+            if resolved_type.fn_declaration.template_parameter_decl_list:
+                for i, f in enumerate(resolved_type.fn_declaration.template_parameter_decl_list):
                     subscope.set(f.name, Var(type_parameters[i], name=f.name))
 
             ## Create the function type
-            internal_fnty = resolved.var_type.fn_declaration.fn_signature.codegen(subscope)
+            internal_fnty = resolved_type.fn_declaration.fn_signature.codegen(subscope)
 
             return internal_fnty
-        else: return resolved.var_type
+        else: return resolved_type
 
     def get_type(self, s):
         return self.get_internal_fnty(s).return_type
 
+    ## Gets the receiver for this fncall if there is one - otherwise, None
+    def get_receiver(self, m, s, b):
+        if not isinstance(self.name, AstQualifiedName): return None
+        resolved = self.name.resolve_minus(m, s, b, 1)
+        if not resolved: return None
+        else:
+            return b.load(resolved.val)
+
     def codegen(self, m, s, b, exp_ty=None):
         # Find function
-        fn = self.find_function(s)
+        fn = self.find_function(m, s, b)
         internal_fnty = self.get_internal_fnty(s)
         if isinstance(fn.var_type, UninstantiatedFunction):
             ## Instantiate this type first. Figure out type params.
@@ -564,6 +625,8 @@ class AstFnCall(AstNode):
             fn_instantiation = fn.var_type.fn_declaration.instantiate(m, s, concrete_template_params)
             # Create args
             args = []
+            receiver = self.get_receiver(m, s, b)
+            if receiver: args.append(receiver)
             for ii, a in enumerate(self.param_list):
                 args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
             # Call the function
@@ -592,9 +655,9 @@ class AstCStringLit(AstNode):
         return b.gep(global_var, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
 
 class AstExternFnDeclaration(AstNode):
-    def __init__(self, fn_name, fn_signature, decoration):
+    def __init__(self, name, fn_signature, decoration):
         super().__init__(decoration)
-        self.fn_name = fn_name
+        self.name = name
         self.fn_signature = fn_signature
     def walk_dfs(self, fn):
         self.fn_signature.walk_dfs(fn)
@@ -603,8 +666,8 @@ class AstExternFnDeclaration(AstNode):
     def run_all_comptime(self, m, s): pass
     def codegen(self, m, s, b, exp_ty=None):
         internal_fnty = self.fn_signature.codegen(s)
-        fn = ir.Function(m, internal_fnty.to_llvm_type(), name=self.fn_name)
-        s.set(self.fn_name, Var(internal_fnty, val=fn))
+        fn = ir.Function(m, internal_fnty.to_llvm_type(), name=self.name)
+        s.set(self.name, Var(internal_fnty, val=fn))
 
 class AstIntLit(AstNode):
     def __init__(self, val, decoration):
@@ -719,6 +782,12 @@ class AstQualifiedNameAddition:
                 ix = None
                 new_type = None
                 for ii, f in enumerate(curr.var_type.data.fields):
+                    if f.is_function():
+                        # Ah, this is a function - in which case, just return a
+                        # var with the type being an uninstantiated function
+                        clone = curr.clone()
+                        clone.var_type = f.field_type
+                        return clone
                     if f.field_name == self.name:
                         new_type = f.field_type
                         ix = ii
@@ -739,7 +808,6 @@ class AstQualifiedName(AstNode):
 
     def run_all_comptime(self, m, s): pass
 
-    ## Codegen as a variable
     def get_type(self, s):
         ret = self.base_name.resolve(s).var_type
         ## Loop and apply additions - each addition returns another Var
@@ -747,17 +815,26 @@ class AstQualifiedName(AstNode):
             ret = a.get_type_after_apply(s, ret)
         return ret
 
-    ## Codegen as a variable
-    def codegen(self, m, s, b, exp_ty=None, lval=False):
+    ## Resolve this as a Var
+    def resolve(self, m, s, b):
+        return self.resolve_minus(m, s, b, 0)
+
+    ## Like resolve, but resolves all but n steps, where n is an integer
+    def resolve_minus(self, m, s, b, n):
         ret = self.base_name.resolve(s)
         ## Loop and apply additions - each addition returns another Var
         for i, a in enumerate(self.additions):
+            if i >= len(self.additions) - n: break
             ret = a.apply(m, s, b, ret)
+        return ret
+
+    ## Codegen as a variable
+    def codegen(self, m, s, b, exp_ty=None, lval=False):
+        ret = self.resolve(m, s, b)
         ## Get the LLVM value + type for this var
         ret_type = ret.var_type
         ret = ret.val
-        if not lval:
-            ret = b.load(ret)
+        if not lval: ret = b.load(ret)
         return gen_coercion(b, ret, ret_type, exp_ty)
 
 class TypeIdent(Resolveable):
