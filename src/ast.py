@@ -435,6 +435,7 @@ class AstFnDeclaration(AstNode):
         ## Create the function
         fn = ir.Function(m, fnty, name=mangled)
         ## Add to (parent) scope
+        print(mangled, internal_fnty)
         parent_scope.set(mangled, Var(internal_fnty, fn))
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)
@@ -746,12 +747,16 @@ class AstQualifiedNameAddition:
                 if self.name == "*": return var_type.val
                 else: return self.get_type_after_apply(s, var_type.val)
             elif isinstance(var_type, StructType):
-                ## Create a GEP - find the offset of the field
+                ## Find the type of this field
                 ret = None
                 for ii, f in enumerate(var_type.data.fields):
                     if f.field_name == self.name:
                         ret = f.field_type
                         break
+                if not ret:
+                    # Try find a matching method (UFCS)
+                    ret = s.lookup(self.name)
+                    if ret: ret = ret.var_type
                 assert ret
                 return ret
 

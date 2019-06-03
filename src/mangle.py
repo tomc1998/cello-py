@@ -14,7 +14,6 @@ def mangle_type(t: Type):
 
 # Given a base name, list of type param concrete types, list of param types, mangle the function accordingly
 def mangle_function(base_name: str, type_params: List[Type]):
-    base_name = "__mangle_" + base_name
     for t in type_params: base_name += mangle_type(t)
     return base_name
 

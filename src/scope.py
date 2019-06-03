@@ -34,6 +34,10 @@ class Scope:
 
     def set(self, name, var: Var): self.symbol_table[name] = var
 
+    def print_scope(self):
+        if self.parent: self.parent.print_scope()
+        print(self.symbol_table)
+
     ## Looks up a value - if the value is comptime, does nothing to the value,
     ## meaning var.val will be a python value (NOT an llvm value). You probably
     ## always want to use lookup(), unless writing an interface to the JIT

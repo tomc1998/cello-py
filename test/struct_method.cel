@@ -7,3 +7,8 @@ type Foo = struct {
 fn add_foo = (f: &Foo) -> i32 {
   f.add()
 }
+
+fn other_add_foo = (f: &Foo) -> i32 {
+  /* UFCS */
+  f.add_foo()
+}
