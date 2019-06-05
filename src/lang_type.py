@@ -47,6 +47,22 @@ class KindType(Type):
     def to_llvm_type(self):
         raise NotImplementedError("Can't convert Kind to LLVM type")
 
+## A slice is just a struct of T*, and a 32-bit len (fuck 64 bit, we don't need
+## that, might potentially get some more space depending on packing (?))
+## struct {
+##   ptr: &T,
+##   len: u32
+## }
+class SliceType(Type):
+    def __init__(self, val):
+        super().__init__("&" + val.name + "[]")
+        self.val = val
+    def to_llvm_type(self):
+        return ir.LiteralStructType([self.val.ptr().to_llvm_type(), IntType(32, False).to_llvm_type()])
+    def eq(self, other):
+        return isinstance(other, SliceType) and \
+            other.val.eq(self.val)
+
 class ArrayType(Type):
     def __init__(self, val, size):
         super().__init__(val.name + "[" + str(size) + "]")

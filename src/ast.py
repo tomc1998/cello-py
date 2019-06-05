@@ -30,7 +30,7 @@ def gen_coercion(b, val, from_ty, to_ty):
     if not to_ty: return val
     if from_ty == to_ty or from_ty.eq(to_ty):
         return val;
-    assert can_coerce(from_ty, to_ty)
+    assert can_coerce(from_ty, to_ty), "Can't coerce from " + from_ty.name + " to " + to_ty.name
     if isinstance(from_ty, IntType) and isinstance(to_ty, IntType):
         # Just coerce with no typechecking
         if from_ty.num_bits == to_ty.num_bits: return val
@@ -173,7 +173,7 @@ class AstAssignment(AstNode):
                 return gen_coercion(b, b.call(fn, [lhs_arg, rhs_arg]), internal_fnty.return_type, exp_ty)
         ## No overload, do default
         if self.op == "=":
-            return b.store(self.val.codegen(m, s, b), self.var.codegen(m, s, b, lval=True))
+            return b.store(gen_coercion(b, self.val.codegen(m, s, b), rhs_ty, ty), self.var.codegen(m, s, b, lval=True))
         else:
             ## Assume this is an op like +=
             assert len(self.op) == 2 and self.op[1] == "="
@@ -206,8 +206,10 @@ class AstRange(AstNode):
         self.start.run_all_comptime(m, s)
         self.end.run_all_comptime(m, s)
     def codegen_start(self, m, s, b, exp_ty=None):
+        if not self.start: return None
         return self.start.codegen(m, s, b, exp_ty)
     def codegen_end(self, m, s, b, exp_ty=None):
+        if not self.end: return None
         return self.end.codegen(m, s, b, exp_ty)
 
 class AstForLoop(AstNode):
@@ -772,9 +774,11 @@ class AstArrayAccess(AstNode):
         super().__init__(decoration)
         self.base = base
         self.index = index
-    def get_type(self, s):
+    def get_type(self, s, lval=False):
         resolved = self.base.resolve(s)
-        return resolved.var_type.val.ptr()
+        if isinstance(self.index, AstRange): return SliceType(resolved.var_type.val)
+        elif lval: return resolved.var_type.val.ptr()
+        else: return resolved.var_type.val
     def run_all_comptime(self, m, s):
         self.base.run_all_comptime(m, s)
         self.index.run_all_comptime(m, s)
@@ -782,13 +786,39 @@ class AstArrayAccess(AstNode):
         self.base.walk_dfs(fn)
         self.index.walk_dfs(fn)
         fn(self)
-    def codegen(self, m, s, b, exp_ty=None):
+    def codegen(self, m, s, b, exp_ty=None, lval=False):
         resolved = self.base.resolve(s)
-        assert isinstance(resolved.var_type, ArrayType), \
+        assert isinstance(resolved.var_type, ArrayType) or \
+            isinstance(resolved.var_type, SliceType), \
             "Accessing element on non-array type " + resolved.var_type.name
+        ## TODO slice bounds checking
+        array_ptr = resolved.val
+        if isinstance(resolved.var_type, SliceType):
+            if resolved.is_alloca:
+                array_ptr = b.load(b.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)]))
+            else:
+                array_ptr = b.extract_value(array_ptr, 0)
+        ## If the index is a range, return a slice rather than a gep
+        if isinstance(self.index, AstRange):
+            start = self.index.codegen_start(m, s, b, IntType(32, True))
+            end = self.index.codegen_end(m, s, b, IntType(32, True))
+            slice_len = b.sub(end, start)
+            slice_ptr = b.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), start])
+            struct_val = ir.Constant.literal_struct([ir.Constant(resolved.var_type.val.ptr().to_llvm_type(), None),
+                                                     ir.Constant(ir.IntType(32), 0)])
+            struct_val = b.insert_value(struct_val, slice_ptr, 0)
+            struct_val = b.insert_value(struct_val, slice_len, 1)
+            return struct_val
         ## Get the type of the elements, and gep into the pointer (which should be in resolved.val)
         ty = resolved.var_type.val
-        return b.gep(resolved.val, [ir.Constant(ir.IntType(32), 0), self.index.codegen(m, s, b)])
+        if isinstance(resolved.var_type, SliceType):
+            print(array_ptr)
+            val = b.gep(array_ptr, [self.index.codegen(m, s, b)])
+        else:
+            print(array_ptr)
+            val = b.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), self.index.codegen(m, s, b)])
+        if lval: return val
+        else: return b.load(val)
 
 class AstMake(AstNode):
     ## @param data - Either a list of vals, or a dictionary. If it's a list,
@@ -1009,13 +1039,19 @@ class AstQualifiedNameAddition:
                 clone.var_type = new_type
                 clone.val = b.gep(curr.val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ix)])
                 return clone
-            elif isinstance(curr.var_type, ArrayType):
-                if self.name == "len":
-                    clone = curr.clone()
-                    clone.var_type = IntType(64, False)
-                    clone.is_alloca = False
-                    clone.val = ir.Constant(ir.IntType(64), curr.var_type.size)
-                    return clone
+            elif isinstance(curr.var_type, SliceType) and self.name == "len":
+                clone = curr.clone()
+                ## We only store 32 bit lens for slices, since they have to be stored in memory
+                clone.var_type = IntType(32, False)
+                ## gep into the struct, 2nd field since it's {ptr, len}
+                clone.val = b.gep(curr.val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)])
+                return clone
+            elif isinstance(curr.var_type, ArrayType) and self.name == "len":
+                clone = curr.clone()
+                clone.var_type = IntType(64, False)
+                clone.is_alloca = False
+                clone.val = ir.Constant(ir.IntType(64), curr.var_type.size)
+                return clone
 
 class AstQualifiedName(AstNode):
     def __init__(self, base_name: Resolveable, additions: List[AstQualifiedNameAddition], decoration):
@@ -1051,7 +1087,7 @@ class AstQualifiedName(AstNode):
         ## Get the LLVM value + type for this var
         ret_type = ret.var_type
         ret_val = ret.val
-        if not lval and ret.is_alloca: ret_val = b.load(ret)
+        if not lval and ret.is_alloca: ret_val = b.load(ret_val)
         elif lval: assert ret.is_alloca, "Treating rval as lval"
         return gen_coercion(b, ret_val, ret_type, exp_ty)
 
@@ -1069,9 +1105,15 @@ class TypeIdent(Resolveable):
         elif self.parse_node.tok_val[0].is_nterm(NTERM_OP) and \
              self.parse_node.tok_val[0].tok_val[0].is_term("&"):
             ## Pointer type
-            assert self.parse_node.tok_val[1].tok_val[0].is_nterm(NTERM_IDENTIFIER)
-            resolved = s.lookup(self.parse_node.tok_val[1].tok_val[0].tok_val[0].tok_val[1]).var_type.val
-            return resolved.ptr()
+            pn = self.parse_node.tok_val[1]
+            resolved = TypeIdent(pn, pn.sl).resolve(s)
+            ## IF this is a pointer to an array, we just treat that as a slice
+            ## (since an array is JUST a pointer, plus some type-system
+            ## constants).
+            if isinstance(resolved, ArrayType):
+                return SliceType(resolved.val)
+            else:
+                return resolved.ptr()
         elif self.parse_node.tok_val[0].is_nterm(NTERM_EMPTY_ARRAY_ACCESS):
             pn = self.parse_node.tok_val[0].tok_val[0]
             resolved = TypeIdent(pn, pn.sl).resolve(s)
