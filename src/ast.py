@@ -136,20 +136,58 @@ class AstIf(AstNode):
             return None
 
 class AstAssignment(AstNode):
-    def __init__(self, var, val, decoration):
+    def __init__(self, var, op, val, decoration):
         super().__init__(decoration)
         self.var = var
+        self.op = op
         self.val = val
     def get_type(self, s): return VoidType()
     def walk_dfs(self, fn):
         self.var.walk_dfs(fn)
         self.val.walk_dfs(fn)
         fn(self)
+
     def codegen(self, m, s, b, exp_ty=None):
-        return b.store(self.val.codegen(m, s, b), self.var.codegen(m, s, b, lval=True))
+        ## Check for overload
+        ty = self.var.get_type(s)
+        rhs_ty = self.val.get_type(s)
+        if self.op in ty.operator_overloads:
+            overloads = ty.operator_overloads[self.op]
+            fn_declaration = None
+            ## Select overload based on arg type
+            for overload in overloads:
+                if len(overload.arg_types) == 1 and can_coerce(rhs_ty, overload.arg_types[0]):
+                    fn_declaration = overload.fn_declaration
+            if fn_declaration:
+                ## Call the function, and return
+                fn = fn_declaration.instantiate(m, s, [])
+                internal_fnty = fn_declaration.fn_signature.codegen(s)
+                args = []
+                lhs_arg = self.var.codegen(m, s, b, exp_ty=internal_fnty.args[0])
+                rhs_arg = self.val.codegen(m, s, b, exp_ty=internal_fnty.args[1])
+                return gen_coercion(b, b.call(fn, [lhs_arg, rhs_arg]), internal_fnty.return_type, exp_ty)
+        ## No overload, do default
+        if self.op == "=":
+            return b.store(self.val.codegen(m, s, b), self.var.codegen(m, s, b, lval=True))
+        else:
+            ## Assume this is an op like +=
+            assert len(self.op) == 2 and self.op[1] == "="
+            ## basically just expand to var = var op[0] val
+            binop = BinaryExpression(self.var, self.op[0], self.val, self.decoration)
+            return b.store(binop.codegen(m, s, b, exp_ty=ty), self.var.codegen(m, s, b, lval=True))
     def run_all_comptime(self, m, s):
         self.var.run_all_comptime(m, s)
         self.val.run_all_comptime(m, s)
+        ## Instantiate overload if this is an overload
+        ty = self.var.get_type(s)
+        rhs_ty = self.val.get_type(s)
+        if self.op in ty.operator_overloads:
+            ## Select overload based on arg type
+            overloads = ty.operator_overloads[self.op]
+            for overload in overloads:
+                if len(overload.arg_types) == 1 and can_coerce(rhs_ty, overload.arg_types[0]):
+                    overload.fn_declaration.instantiate(m, s, [])
+
 
 class AstRange(AstNode):
     def __init__(self, start, end):

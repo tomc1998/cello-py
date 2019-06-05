@@ -186,7 +186,7 @@ def create_assignment(p):
     assert p.is_nterm(NTERM_ASSIGNMENT)
     var = create_expression(p.tok_val[0])
     val = create_expression(p.tok_val[2])
-    return AstAssignment(var, val, p.sl)
+    return AstAssignment(var, p.tok_val[1].tok_val[1], val, p.sl)
 
 def create_comptime(p):
     assert p.is_nterm(NTERM_COMPTIME)

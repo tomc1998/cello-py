@@ -109,9 +109,9 @@ Lambda ::= "lambda" FnSignature Expression
 
 BinaryExpression ::= Expression BinaryOp Expression
 
-BinaryOp ::= Any op apart from "=", see separate Assignment nterm
+BinaryOp ::= Any op apart from assignment ops, see separate Assignment nterm
 
-Assignment ::= Expression "=" Expression
+Assignment ::= Expression AssignmentOp Expression
 
 FunctionCall ::= Expression  ParameterList
 ArrayAccess ::= Expression "[" Expression "]"

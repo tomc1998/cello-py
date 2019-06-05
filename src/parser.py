@@ -84,7 +84,7 @@ class ParseError(Exception):
         self.sl = l.sl()
 
 def is_assignment_op(t):
-  return t[1] == "=" or t[1] == "+=" or t[1] == "-=" or t[1] == "/=" or t[1] == "*="
+  return t == "=" or t == "+=" or t == "-=" or t == "/=" or t == "*="
 
 def assert_not_empty(l, msg):
     if not l.peek(): raise ParseError(l, msg)
@@ -238,7 +238,6 @@ def parse_qualified_name(l, lrec=None):
 
 def parse_assignment(l, lrec=None):
     children = [ lrec ]
-    assert_val(l, "=")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     children.append(parse_expression(l))
     return ParseNode(NTERM_ASSIGNMENT, children, l.sl())
@@ -373,7 +372,7 @@ def parse_expression(l, no_right_angle=False):
             lrec = parse_range(l, lrec)
         ## Check if this is a binary op, but also if no_right_angle is set, check it's not a ">".
         ## As a bonus, don't parse assignment ops here
-        elif l.peek()[0] == "op" and not is_assignment_op(l.peek()) and (not no_right_angle or l.peek()[1] != ">"):
+        elif l.peek()[0] == "op" and not is_assignment_op(l.peek()[1]) and (not no_right_angle or l.peek()[1] != ">"):
             lrec = parse_binary_expression(l, lrec)
         else: break
         added_lrec = True
@@ -571,7 +570,7 @@ def parse_statement(l):
             children.append(parse_var_declaration(l))
         else:
             expr = parse_expression(l)
-            if l.peek() and l.peek()[1] == "=":
+            if l.peek() and is_assignment_op(l.peek()[1]):
                 expr = parse_assignment(l, lrec=expr)
             children.append(expr);
 
