@@ -71,6 +71,14 @@ class StructType(Type):
             if not self.data.fields[ii].field_type.eq(other.data.fields[ii].field_type): return False
         return True
 
+    def get_field_ix(self, name):
+        for ii, f in enumerate(self.data.fields):
+            if f.field_name == name: return ii
+        return None
+
+    def get_field_type(self, name):
+        return self.data.fields[self.get_field_ix(name)].field_type
+
     ## Loop over all function fields and 'connect' their 'owning_struct_type'
     ## params to `self`.
     def connect_member_functions(self):

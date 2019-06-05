@@ -1,0 +1,13 @@
+type Foo = struct {
+  a: i32,
+  b: i32,
+  c: i32,
+  d: i32,
+  e: i32,
+  f: i32,
+  g: i32,
+  h: i32,
+}
+
+fn foo_a = (f: Foo) -> i32 f.f
+fn foo_a_c = (f: &Foo) -> i32 foo_a(f.*)

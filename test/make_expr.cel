@@ -1,0 +1,9 @@
+type Foo = struct {
+  a: i32,
+  b: i32,
+}
+
+fn three = () -> i32 {
+  var foo = make Foo { a: 3, b: 4 }
+  foo.a
+}

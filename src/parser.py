@@ -517,6 +517,25 @@ def parse_fn_instantiation(l):
     children.append(parse_template_parameter_list(l))
     return ParseNode(NTERM_FN_INSTANTIATION, children, l.sl())
 
+def parse_make_expression(l):
+    children = []
+    assert_val(l, "make")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    assert_val(l, "{")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    while l.peek() and l.peek()[1] != "}":
+        children.append(parse_identifier(l))
+        assert_val(l, ":")
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        children.append(parse_expression(l))
+        if l.peek() and l.peek()[1] == ",":
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "}")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_MAKE_EXPRESSION, children, l.sl())
+
+
 def parse_statement(l):
     assert_not_empty(l, "Expected statement, got EOF")
     children = []

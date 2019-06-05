@@ -600,7 +600,7 @@ class AstFnCall(AstNode):
                 type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
             mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
             return s.lookup(mangled).var_type;
-        else: return resolved
+        else: return resolved.var_type
 
     ## Find the associated function Var
     def find_function(self, m, s, b):
@@ -673,6 +673,29 @@ class AstFnCall(AstNode):
                 args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
             # Call the function
             return gen_coercion(b, b.call(fn.val, args), self.get_type(s), exp_ty)
+
+class AstMake(AstNode):
+    def __init__(self, typename, field_vals, decoration):
+        super().__init__(decoration)
+        self.typename = typename
+        self.field_vals = field_vals
+    def get_type(self, s): return self.typename.resolve(s)
+    def run_all_comptime(self, m, s):
+        self.typename.run_all_comptime(m, s)
+        for name in self.field_vals: self.field_vals[name].run_all_comptime(m, s)
+    def walk_dfs(self, fn):
+        self.typename.walk_dfs(fn)
+        for name in self.field_vals: self.field_vals[name].walk_dfs(fn)
+        fn(self)
+    def codegen(self, m, s, b, exp_ty=None):
+        ty = self.get_type(s)
+        vals = list(map(lambda x: ir.Constant(ty.get_field_type(x).to_llvm_type(), None), self.field_vals))
+        struct_val = ir.Constant.literal_struct(vals)
+        for name in self.field_vals:
+            ix = ty.get_field_ix(name)
+            val = self.field_vals[name].codegen(m, s, b, exp_ty=ty.data.fields[ix].field_type)
+            struct_val = b.insert_value(struct_val, val, ix)
+        return gen_coercion(b, struct_val, ty, exp_ty)
 
 class AstCStringLit(AstNode):
     def __init__(self, val, decoration):

@@ -94,7 +94,7 @@ MetaTypeIdent ::= "$" "type"
 
 /* Actual code, rather than data definition */
 
-MakeExpression ::= "make" Expression "{" ( Expression [","] ) * "}"
+MakeExpression ::= "make" Expression "{" ( Identifier ":" Expression [","] ) * "}"
 
 ComptimeForLoop ::= "comptime" ForLoop
 ComptimeIf ::= "comptime" If

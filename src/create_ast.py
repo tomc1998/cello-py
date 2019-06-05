@@ -71,6 +71,20 @@ def create_statement_list(p):
         while ii < len(p.tok_val) and p.tok_val[ii].is_term(";"): ii += 1
     return AstProgram(children, p.sl)
 
+def create_make_expression(p):
+    assert p.is_nterm(NTERM_MAKE_EXPRESSION)
+    typename = create_type_ident(p.tok_val[1])
+    ii = 3
+    field_vals = {}
+    while not p.tok_val[ii].is_term("}"):
+        field_name = p.tok_val[ii].tok_val[0].tok_val[1]
+        ii += 2
+        field_val = create_expression(p.tok_val[ii])
+        ii += 1
+        while p.tok_val[ii].is_term(","): ii += 1
+        field_vals[field_name] = field_val
+    return AstMake(typename, field_vals, p.sl)
+
 def create_comptime_if(p):
     assert p.is_nterm(NTERM_COMPTIME_IF)
     return AstComptimeIf(create_if(p.tok_val[1]), p.sl)
@@ -224,6 +238,8 @@ def create_expression(p):
         return create_comptime(p)
     elif p.is_nterm(NTERM_RANGE):
         return create_range(p)
+    elif p.is_nterm(NTERM_MAKE_EXPRESSION):
+        return create_make_expression(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 
