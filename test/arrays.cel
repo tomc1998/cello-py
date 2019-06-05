@@ -1,4 +1,4 @@
 fn six = () -> i32 {
   var arr = make i32[] {2, 4, 6}
-  arr[2]
+  arr.len * 2
 }

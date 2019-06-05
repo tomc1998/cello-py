@@ -962,6 +962,8 @@ class AstQualifiedNameAddition:
                     if ret: ret = ret.var_type
                 assert ret
                 return ret
+            elif isinstance(var_type, ArrayType) and self.name == "len":
+                return IntType(64, False)
 
     ## APply this name addition to the given Var, returning another var
     def apply(self, m, s, b, curr: Var) -> Var:
@@ -1007,6 +1009,13 @@ class AstQualifiedNameAddition:
                 clone.var_type = new_type
                 clone.val = b.gep(curr.val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ix)])
                 return clone
+            elif isinstance(curr.var_type, ArrayType):
+                if self.name == "len":
+                    clone = curr.clone()
+                    clone.var_type = IntType(64, False)
+                    clone.is_alloca = False
+                    clone.val = ir.Constant(ir.IntType(64), curr.var_type.size)
+                    return clone
 
 class AstQualifiedName(AstNode):
     def __init__(self, base_name: Resolveable, additions: List[AstQualifiedNameAddition], decoration):
@@ -1041,9 +1050,10 @@ class AstQualifiedName(AstNode):
         ret = self.resolve(m, s, b)
         ## Get the LLVM value + type for this var
         ret_type = ret.var_type
-        ret = ret.val
-        if not lval: ret = b.load(ret)
-        return gen_coercion(b, ret, ret_type, exp_ty)
+        ret_val = ret.val
+        if not lval and ret.is_alloca: ret_val = b.load(ret)
+        elif lval: assert ret.is_alloca, "Treating rval as lval"
+        return gen_coercion(b, ret_val, ret_type, exp_ty)
 
 class TypeIdent(Resolveable):
     def run_all_comptime(self, m, s): pass

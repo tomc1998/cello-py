@@ -5,14 +5,16 @@ class Var:
     ## @param var_type - See the 'lang_type' module
     ## @param val - The LLVM value that represents this variable. None if this
     ## is a kind. This is a python value if is_comptime.
-
-    def __init__(self, var_type, val=None, is_mutable=False, is_member=False, is_comptime=False, name=""):
+    ## @param is_alloca - if true, this needs to be loaded, it's not just a
+    ## register value.
+    def __init__(self, var_type, val=None, is_mutable=False, is_member=False, is_comptime=False, is_alloca=True, name=""):
         self.name = name
         self.var_type = var_type
         self.val = val
         self.is_comptime = is_comptime
         self.is_mutable = is_mutable
         self.is_member = is_member
+        self.is_alloca = is_alloca
 
     def clone(self):
         return copy.deepcopy(self)
