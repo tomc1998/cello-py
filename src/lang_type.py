@@ -47,6 +47,19 @@ class KindType(Type):
     def to_llvm_type(self):
         raise NotImplementedError("Can't convert Kind to LLVM type")
 
+class ArrayType(Type):
+    def __init__(self, val, size):
+        super().__init__(val.name + "[" + str(size) + "]")
+        self.val = val
+        self.size = size
+    def to_llvm_type(self):
+        assert self.size != None
+        return ir.ArrayType(self.val.to_llvm_type(), self.size)
+    def eq(self, other):
+        return isinstance(other, ArrayType) and \
+            other.val.eq(self.val) and \
+            other.size == self.size
+
 class VoidType(Type):
     def __init__(self):
         super().__init__("void")

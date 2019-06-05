@@ -76,14 +76,31 @@ def create_make_expression(p):
     typename = create_type_ident(p.tok_val[1])
     ii = 3
     field_vals = {}
+    initializer_list = []
+    is_initializer_list = None
+    ## BOolean, set to true / false based off of {} content. Initializer lists
+    ## don't have field tags, and are used to create arrays.
     while not p.tok_val[ii].is_term("}"):
-        field_name = p.tok_val[ii].tok_val[0].tok_val[1]
-        ii += 2
-        field_val = create_expression(p.tok_val[ii])
-        ii += 1
+        ## Check if this is an expression or ident - if it's an expression,
+        ## this is an initializer list.
+        if p.tok_val[ii].tok_type == NTERM_EXPRESSION:
+            is_initializer_list = True
+            initializer_list.append(create_expression(p.tok_val[ii]))
+            ii += 1
+        else:
+            is_initializer_list = False
+            field_name = p.tok_val[ii].tok_val[0].tok_val[1]
+            ii += 2
+            field_val = create_expression(p.tok_val[ii])
+            ii += 1
+            field_vals[field_name] = field_val
         while p.tok_val[ii].is_term(","): ii += 1
-        field_vals[field_name] = field_val
-    return AstMake(typename, field_vals, p.sl)
+    if is_initializer_list:
+        assert len(field_vals) == 0
+        return AstMake(typename, initializer_list, p.sl)
+    else:
+        assert len(initializer_list) == 0
+        return AstMake(typename, field_vals, p.sl)
 
 def create_comptime_if(p):
     assert p.is_nterm(NTERM_COMPTIME_IF)
@@ -216,6 +233,11 @@ def create_range(p):
     end = create_expression(p.tok_val[2])
     return AstRange(start, end)
 
+def create_array_access(p):
+    base = create_expression(p.tok_val[0])
+    index = create_expression(p.tok_val[2])
+    return AstArrayAccess(base, index, p.sl)
+
 def create_expression(p):
     while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
     if p.is_nterm(NTERM_IDENTIFIER):
@@ -240,6 +262,8 @@ def create_expression(p):
         return create_range(p)
     elif p.is_nterm(NTERM_MAKE_EXPRESSION):
         return create_make_expression(p)
+    elif p.is_nterm(NTERM_ARRAY_ACCESS):
+        return create_array_access(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 

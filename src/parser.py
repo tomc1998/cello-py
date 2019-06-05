@@ -293,6 +293,23 @@ def parse_comptime_if(l):
     children.append(parse_if(l))
     return ParseNode(NTERM_COMPTIME_IF, children, l.sl())
 
+def parse_empty_array_access(l, lrec=None):
+    children = [lrec]
+    assert_val(l, "[")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "]")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_EMPTY_ARRAY_ACCESS, children, l.sl())
+
+def parse_array_access(l, lrec=None):
+    children = [lrec]
+    assert_val(l, "[")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    assert_val(l, "]")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_ARRAY_ACCESS, children, l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")
@@ -527,11 +544,19 @@ def parse_make_expression(l):
     children.append(parse_expression(l))
     assert_val(l, "{")
     children.append(ParseNode(TERM, l.next(), l.sl()))
+    initializer_list = None
     while l.peek() and l.peek()[1] != "}":
-        children.append(parse_identifier(l))
-        assert_val(l, ":")
-        children.append(ParseNode(TERM, l.next(), l.sl()))
-        children.append(parse_expression(l))
+        if initializer_list == False or (l.peek(1) and l.peek(1)[1] == ":"):
+            initializer_list = False
+            children.append(parse_identifier(l))
+            assert_val(l, ":")
+            children.append(ParseNode(TERM, l.next(), l.sl()))
+            children.append(parse_expression(l))
+        elif initializer_list == None or initializer_list:
+            initializer_list = True
+            children.append(parse_expression(l))
+        else:
+            raise ParseError(l, "Can't mix initializer list / labelled values in make expr")
         if l.peek() and l.peek()[1] == ",":
             children.append(ParseNode(TERM, l.next(), l.sl()))
     assert_val(l, "}")

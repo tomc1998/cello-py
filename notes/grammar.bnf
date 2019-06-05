@@ -96,6 +96,7 @@ MetaTypeIdent ::= "$" "type"
 /* Actual code, rather than data definition */
 
 MakeExpression ::= "make" Expression "{" ( Identifier ":" Expression [","] ) * "}"
+  "make" Expression "{" ( Expression [","] ) * "}"
 
 ComptimeForLoop ::= "comptime" ForLoop
 ComptimeIf ::= "comptime" If
@@ -121,3 +122,5 @@ SliceType ::= Expression "[" "]"
 
 // Used as a slice or as range in for loops
 Range ::= Expression ".." Expression
+  | ".." Expression
+  | Expression ".."

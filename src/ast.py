@@ -19,6 +19,8 @@ def can_coerce(from_ty, to_ty):
         return True
     if isinstance(from_ty, IntType) and isinstance(to_ty, IntType):
         return True
+    if isinstance(from_ty, PtrType) and to_ty.eq(from_ty.val):
+        return True
     else:
         return False
 
@@ -37,6 +39,9 @@ def gen_coercion(b, val, from_ty, to_ty):
             else: return b.zext(val, to_ty.to_llvm_type())
         else:
             return b.trunc(val, to_ty.to_llvm_type())
+    if isinstance(from_ty, PtrType) and to_ty.eq(from_ty.val):
+        # Just load here
+        return b.load(val)
     else:
         assert False, "Can't coerce from " + str(from_ty) + " to " + str(to_ty)
 
@@ -738,7 +743,6 @@ class AstFnCall(AstNode):
             return val
 
     def codegen(self, m, s, b, exp_ty=None):
-        print(self.name.parse_node.to_string())
         # Find function
         fn = self.find_function(m, s, b)
         internal_fnty = self.get_internal_fnty(s)
@@ -763,28 +767,81 @@ class AstFnCall(AstNode):
             # Call the function
             return gen_coercion(b, b.call(fn.val, args), self.get_type(s), exp_ty)
 
-class AstMake(AstNode):
-    def __init__(self, typename, field_vals, decoration):
+class AstArrayAccess(AstNode):
+    def __init__(self, base, index, decoration):
         super().__init__(decoration)
-        self.typename = typename
-        self.field_vals = field_vals
-    def get_type(self, s): return self.typename.resolve(s)
+        self.base = base
+        self.index = index
+    def get_type(self, s):
+        resolved = self.base.resolve(s)
+        return resolved.var_type.val.ptr()
     def run_all_comptime(self, m, s):
-        self.typename.run_all_comptime(m, s)
-        for name in self.field_vals: self.field_vals[name].run_all_comptime(m, s)
+        self.base.run_all_comptime(m, s)
+        self.index.run_all_comptime(m, s)
     def walk_dfs(self, fn):
-        self.typename.walk_dfs(fn)
-        for name in self.field_vals: self.field_vals[name].walk_dfs(fn)
+        self.base.walk_dfs(fn)
+        self.index.walk_dfs(fn)
         fn(self)
     def codegen(self, m, s, b, exp_ty=None):
-        ty = self.get_type(s)
-        vals = list(map(lambda x: ir.Constant(ty.get_field_type(x).to_llvm_type(), None), self.field_vals))
-        struct_val = ir.Constant.literal_struct(vals)
-        for name in self.field_vals:
-            ix = ty.get_field_ix(name)
-            val = self.field_vals[name].codegen(m, s, b, exp_ty=ty.data.fields[ix].field_type)
-            struct_val = b.insert_value(struct_val, val, ix)
-        return gen_coercion(b, struct_val, ty, exp_ty)
+        resolved = self.base.resolve(s)
+        assert isinstance(resolved.var_type, ArrayType), \
+            "Accessing element on non-array type " + resolved.var_type.name
+        ## Get the type of the elements, and gep into the pointer (which should be in resolved.val)
+        ty = resolved.var_type.val
+        return b.gep(resolved.val, [ir.Constant(ir.IntType(32), 0), self.index.codegen(m, s, b)])
+
+class AstMake(AstNode):
+    ## @param data - Either a list of vals, or a dictionary. If it's a list,
+    ## then this is an initializer list for an array - otherwise, it's a struct
+    ## initialization
+    def __init__(self, typename, data, decoration):
+        super().__init__(decoration)
+        self.typename = typename
+        self.data = data
+        self.is_initializer_list = isinstance(self.data, list)
+    def get_type(self, s):
+        ty = self.typename.resolve(s)
+        if self.is_initializer_list:
+            assert isinstance(ty, ArrayType)
+            ## Fill in the size for ty if it's none
+            if ty.size == None:
+                ty = copy.deepcopy(ty)
+                ty.size = len(self.data)
+            else: assert ty.size == len(self.data), "Array size doesn't match initializer list size"
+        return ty
+    def run_all_comptime(self, m, s):
+        self.typename.run_all_comptime(m, s)
+        if self.is_initializer_list:
+            for val in self.data: val.run_all_comptime(m, s)
+        else:
+            for name in self.data: self.data[name].run_all_comptime(m, s)
+    def walk_dfs(self, fn):
+        self.typename.walk_dfs(fn)
+        if self.is_initializer_list:
+            for val in self.data: val.walk_dfs(fn)
+        else:
+            for name in self.data: self.data[name].walk_dfs(fn)
+        fn(self)
+    def codegen(self, m, s, b, exp_ty=None):
+        if self.is_initializer_list:
+            ty = self.get_type(s)
+            assert isinstance(ty, ArrayType)
+            # Create a default array then fill with values
+            default_vals = [ir.Constant(ty.val.to_llvm_type(), None) for _ in self.data]
+            array_val = ir.Constant.literal_array(default_vals)
+            for ix, ast_val in enumerate(self.data):
+                val = ast_val.codegen(m, s, b, exp_ty=ty.val)
+                array_val = b.insert_value(array_val, val, ix)
+            return gen_coercion(b, array_val, ty, exp_ty)
+        else:
+            ty = self.get_type(s)
+            vals = list(map(lambda x: ir.Constant(ty.get_field_type(x).to_llvm_type(), None), self.data))
+            struct_val = ir.Constant.literal_struct(vals)
+            for name in self.data:
+                ix = ty.get_field_ix(name)
+                val = self.data[name].codegen(m, s, b, exp_ty=ty.data.fields[ix].field_type)
+                struct_val = b.insert_value(struct_val, val, ix)
+            return gen_coercion(b, struct_val, ty, exp_ty)
 
 class AstCStringLit(AstNode):
     def __init__(self, val, decoration):
@@ -1005,6 +1062,10 @@ class TypeIdent(Resolveable):
             assert self.parse_node.tok_val[1].tok_val[0].is_nterm(NTERM_IDENTIFIER)
             resolved = s.lookup(self.parse_node.tok_val[1].tok_val[0].tok_val[0].tok_val[1]).var_type.val
             return resolved.ptr()
+        elif self.parse_node.tok_val[0].is_nterm(NTERM_EMPTY_ARRAY_ACCESS):
+            pn = self.parse_node.tok_val[0].tok_val[0]
+            resolved = TypeIdent(pn, pn.sl).resolve(s)
+            return ArrayType(resolved, None)
         else: assert False, "Unimpl type ident resolve for " + self.parse_node.to_string()
 
 class VarIdent(Resolveable):
