@@ -52,10 +52,44 @@ class AstProgram(AstNode):
     def get_type(self, s):
         return self.children[len(self.children)-1].get_type(s)
 
+class AstComptimeIf(AstNode):
+    def __init__(self, if_expr, decoration):
+        super().__init__(decoration)
+        self.if_expr = if_expr
+        ## Set to the given if branch body when comptime is run
+        self.chosen_body = None
+
+    def walk_dfs(self, fn):
+        self.if_expr.walk_dfs(fn)
+        fn(self)
+
+    def get_type(self, s):
+        assert self.chosen_body
+        return self.chosen_body.get_type(s)
+
+    def run_all_comptime(self, m, s):
+        ## Run all cond comptime blocks (don't run bodies yet)
+        for cond in self.if_expr.conditions:
+            cond.cond.run_all_comptime(m, s)
+        ## Eval all conditions
+        for cond in self.if_expr.conditions:
+            ## Just create an AstComptime
+            comptime = AstComptime(cond.cond, cond.decoration)
+            comptime.run_all_comptime(m, s)
+            val = comptime.computed
+            if bool(val):
+                ## This is true, so just choose this condition body
+                self.chosen_body = cond.body
+        ## If one of the branches was true, run comptime on that now
+        if self.chosen_body: self.chosen_body.run_all_comptime(m, s)
+
+    def codegen(self, m, s, b, exp_ty=None):
+        assert self.chosen_body
+        return self.chosen_body.codegen(m, s, b, exp_ty)
+
 ## Basically just a list of AstConditionals with an optional fallback (else clause)
 class AstIf(AstNode):
     def __init__(self, conditions, decoration, fallback=None):
-        super().__init__(decoration)
         self.conditions = conditions
         self.decoration = decoration
         self.fallback = fallback
@@ -367,13 +401,14 @@ class AstComptime(AstNode):
 
         subscope = s.subscope();
         ty = self.body.get_type(s)
-        jit_val = jit_result.to_llvm_constant(jit.jit_node(self.body, subscope, preamble, post_jit_fn), ty)
-        self.computed = jit_val
+        self.computed = jit.jit_node(self.body, subscope, preamble, post_jit_fn)
     def codegen(self, m, s, b, exp_ty=None):
         if not self.computed: return None
         ty = self.body.get_type(s)
+        val = jit_result.to_llvm_constant(self.computed, ty)
+        ty = self.body.get_type(s)
         if isinstance(ty, VoidType): return
-        return gen_coercion(b, self.computed, ty, exp_ty)
+        return gen_coercion(b, val, ty, exp_ty)
 
 class AstFnDeclaration(AstNode):
     def __init__(self, name, template_parameter_decl_list, fn_signature, body, decoration):

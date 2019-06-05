@@ -283,6 +283,13 @@ def parse_var_declaration(l):
     children.append(parse_expression(l))
     return ParseNode(NTERM_VAR_DECLARATION, children, l.sl())
 
+def parse_comptime_if(l):
+    children = []
+    assert_val(l, "comptime")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_if(l))
+    return ParseNode(NTERM_COMPTIME_IF, children, l.sl())
+
 def parse_expression(l, no_right_angle=False):
     """
     @param no_right_angle - When true, this won't parse right angle braces (">")

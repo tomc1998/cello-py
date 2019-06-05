@@ -71,6 +71,10 @@ def create_statement_list(p):
         while ii < len(p.tok_val) and p.tok_val[ii].is_term(";"): ii += 1
     return AstProgram(children, p.sl)
 
+def create_comptime_if(p):
+    assert p.is_nterm(NTERM_COMPTIME_IF)
+    return AstComptimeIf(create_if(p.tok_val[1]), p.sl)
+
 def create_if(p):
     if p.is_nterm(NTERM_IF):
         ii = 1
@@ -206,6 +210,8 @@ def create_expression(p):
         return create_binary_expression(p)
     elif p.is_nterm(NTERM_IF):
         return create_if(p)
+    elif p.is_nterm(NTERM_COMPTIME_IF):
+        return create_comptime_if(p)
     elif p.is_nterm(NTERM_FUNCTION_CALL):
         return create_function_call(p)
     elif p.is_nterm(NTERM_STATEMENT_LIST):

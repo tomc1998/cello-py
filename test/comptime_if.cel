@@ -1,0 +1,7 @@
+fn max_int<T: $type> = () -> T
+  comptime if T == i32 { 2147483647 }
+  elif T == u8 { 255 }
+  else { 0 }
+
+instantiate max_int<i32>
+instantiate max_int<u8>
