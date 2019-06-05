@@ -71,8 +71,6 @@ def jit_node(n, scope, gen_preamble_fn=None, post_jit_fn=None):
     if isinstance(internal_ret_ty, VoidType): b.ret_void()
     else: b.ret(ret_val)
 
-    print(m)
-
     ## Create binding module
     binding_module = llvm.parse_assembly(str(m))
     binding_module.verify()

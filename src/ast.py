@@ -435,7 +435,6 @@ class AstFnDeclaration(AstNode):
         ## Create the function
         fn = ir.Function(m, fnty, name=mangled)
         ## Add to (parent) scope
-        print(mangled, internal_fnty)
         parent_scope.set(mangled, Var(internal_fnty, fn))
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)
@@ -922,6 +921,12 @@ class BinaryExpression(AstNode):
                 return gen_coercion(b, b.fdiv(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == "*":
                 return gen_coercion(b, b.fmul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
+        elif isinstance(ty, KindType):
+            if self.op == "==":
+                lhs_type = self.lhs.get_type(s).val
+                rhs_type = self.rhs.get_type(s).val
+                eq = lhs_type.eq(rhs_type)
+                return ir.Constant(BoolType().to_llvm_type(), 1 if eq else None)
         else: raise NotImplementedError("Unimpl op " + self.op + " for type " + ty.name)
 
 

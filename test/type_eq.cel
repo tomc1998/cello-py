@@ -1,0 +1,4 @@
+fn is_i32<T: $type> = () -> bool comptime { T == i32 }
+
+instantiate is_i32<i32>
+instantiate is_i32<u8>

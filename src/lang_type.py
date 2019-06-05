@@ -135,3 +135,10 @@ class UninstantiatedFunction(Type):
 class BoolType(Type):
     def __init__(self):
         super().__init__("bool")
+    def to_llvm_type(self):
+        return ir.IntType(8)
+    def eq(self, other):
+        return isinstance(other, BoolType)
+    def to_c_type(self):
+        return c_byte
+
