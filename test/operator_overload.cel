@@ -1,0 +1,13 @@
+type Vec2 = struct {
+  x: i32,
+  y: i32,
+  fn add = (other: &Vec2) -> Vec2 make Vec2 { x: x + other.x, y: y + other.y },
+  fn operator+ = (other: &Vec2) -> Vec2 add(other),
+}
+
+fn six = () -> i32 {
+  var v0 = make Vec2 { x: 3, y: 4 }
+  var v1 = make Vec2 { x: 3, y: 4 }
+  var v2 = v0 + v1
+  v2.x
+}

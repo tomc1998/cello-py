@@ -1,15 +1,29 @@
 from ctypes import *
 from llvmlite import ir
 from typing import List
+from overloads import *
 import copy
 
 class Type:
     ## @param num_ptr - Levels of indirection
     def __init__(self, name):
         self.name = name
+        self.operator_overloads = {}
 
     ## Returns a copy of this type, but with an additional level of indirection
     def ptr(self): return PtrType(self)
+    def num_ptr(self): return 0
+
+    ## PRetty sure this isn't unambiguous
+    def mangle(self):
+        if isinstance(self, StructType):
+            base = ""
+            for f in filter(lambda x: not x.is_function(), self.data.fields):
+                base += f.field_type.mangle()
+            return base
+        elif isinstance(self, PtrType):
+            return "p" + self.val.mangle()
+        else: return self.name
 
 class PtrType(Type):
     def __init__(self, val):
@@ -17,7 +31,9 @@ class PtrType(Type):
         self.name = "&" + self.val.name
     def to_llvm_type(self):
         return self.val.to_llvm_type().as_pointer()
-
+    def num_ptr(self):
+        if isinstance(self.val, PtrType): return 1 + self.val.num_ptr()
+        else: return 1
     def eq(self, other):
         if not isinstance(other, PtrType): return False
         return self.val.eq(other.val)
@@ -68,6 +84,7 @@ class StructType(Type):
         if len(self.data.fields) != len(other.data.fields): return False
         # Compare by field
         for ii in range(len(self.data.fields)):
+            if self.data.fields[ii].is_function(): continue
             if not self.data.fields[ii].field_type.eq(other.data.fields[ii].field_type): return False
         return True
 
@@ -79,11 +96,17 @@ class StructType(Type):
     def get_field_type(self, name):
         return self.data.fields[self.get_field_ix(name)].field_type
 
-    ## Loop over all function fields and 'connect' their 'owning_struct_type'
+    ## Loop over all function fields and 'connect' their receiver
     ## params to `self`.
-    def connect_member_functions(self):
+    def connect_member_functions(self, s):
         for f in filter(lambda x: x.is_function(), self.data.fields):
             f.field_type.fn_declaration.fn_signature.receiver = self
+            if f.field_type.fn_declaration.is_operator_overload:
+                args = f.field_type.fn_declaration.fn_signature.codegen(s).args[1:]
+                base_name = f.field_type.fn_declaration.name
+                if not (base_name in self.operator_overloads):
+                    self.operator_overloads[base_name] = []
+                self.operator_overloads[base_name].append(Overload(args, f.field_type.fn_declaration))
 
     def to_llvm_type(self):
         return ir.LiteralStructType(list(map(lambda x : x.field_type.to_llvm_type(),
@@ -149,4 +172,3 @@ class BoolType(Type):
         return isinstance(other, BoolType)
     def to_c_type(self):
         return c_byte
-

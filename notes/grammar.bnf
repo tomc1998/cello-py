@@ -45,6 +45,7 @@ VarDeclaration ::= [ "export" ] [ "comptime" ] "var" Identifier [ ":" Expression
   
 FnDeclaration ::=
   [ "export" ] "fn" Identifier [ TemplateParameterDeclList ] "=" FnSignature Expression
+  [ "export" ] "fn" "operator" Op [ TemplateParameterDeclList ] "=" FnSignature Expression
 
 FnInstantiation ::= "instantiate" Identifier TemplateParameterList
 

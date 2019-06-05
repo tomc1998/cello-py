@@ -270,13 +270,18 @@ def create_template_parameter_decl_list(p):
         ii += 2
     return ret
 
-
 def create_fn_declaration(p):
     ii = 0
     ast_assert(p.tok_val[ii] != "export", "Unimpl");
     assert p.tok_val[ii].is_term("fn")
     ii += 1
-    fn_name = p.tok_val[ii].tok_val[0].to_string()
+    is_operator_overload = False
+    if p.tok_val[ii].is_term("operator"):
+        ii += 1
+        fn_name = p.tok_val[ii].tok_val[0].to_string()
+        is_operator_overload = True
+    else:
+        fn_name = p.tok_val[ii].tok_val[0].to_string()
     ii += 1
     template_parameter_decl_list = None
     if p.tok_val[ii].is_nterm(NTERM_TEMPLATE_PARAMETER_DECL_LIST):
@@ -287,7 +292,7 @@ def create_fn_declaration(p):
     fn_signature = create_fn_signature(p.tok_val[ii], False)
     ii += 1
     body = create_expression(p.tok_val[ii]);
-    return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, p.sl)
+    return AstFnDeclaration(fn_name, template_parameter_decl_list, fn_signature, body, is_operator_overload, p.sl)
 
 def create_extern_fn_declaration(p):
     assert p.is_nterm(NTERM_EXTERN_FN_DECLARATION)

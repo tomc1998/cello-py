@@ -1,3 +1,4 @@
+from overloads import Overload
 from llvmlite import ir
 from typing import List
 from parser import *
@@ -13,12 +14,21 @@ class AstNode:
     def __init__(self, decoration):
         self.decoration = decoration
 
+def can_coerce(from_ty, to_ty):
+    if isinstance(from_ty, StructType) and isinstance(to_ty, PtrType) and to_ty.val.eq(from_ty):
+        return True
+    if isinstance(from_ty, IntType) and isinstance(to_ty, IntType):
+        return True
+    else:
+        return False
+
 # Asserts if not possible
 # If to_ty == None, return val
 def gen_coercion(b, val, from_ty, to_ty):
     if not to_ty: return val
     if from_ty == to_ty or from_ty.eq(to_ty):
         return val;
+    assert can_coerce(from_ty, to_ty)
     if isinstance(from_ty, IntType) and isinstance(to_ty, IntType):
         # Just coerce with no typechecking
         if from_ty.num_bits == to_ty.num_bits: return val
@@ -245,10 +255,16 @@ class AstStructDefinition(AstNode):
         for f in self.fields: f.walk_dfs(fn)
         fn(self)
 
-    def get_type(self, s):
+    ## @param name - Forward declare the given name with the incomplete struct
+    ## type as the struct type is formed. If NOne, doesn't add anything to the
+    ## scope.
+    def get_type(self, s, name=None):
         resolved_fields = list(map(lambda x: x.get_type(s), self.fields))
         struct_type = StructType(StructData(resolved_fields))
-        struct_type.connect_member_functions()
+        subscope = s.subscope()
+        if name != None:
+            subscope.set(name, Var(KindType(struct_type)))
+        struct_type.connect_member_functions(subscope)
         return KindType(struct_type)
 
 class AstVarDeclaration(AstNode):
@@ -266,12 +282,17 @@ class AstVarDeclaration(AstNode):
     def run_all_comptime(self, m, s):
         if self.declared_type: self.declared_type.run_all_comptime(m, s)
         self.val.run_all_comptime(m, s)
+        ## Add this to scope if we're running comptime, no need to compute val
+        s.set(self.name, Var(self.get_var_type(s), is_mutable=self.is_mut, is_comptime=self.is_comptime, name=self.name))
     def get_type(self, s): return VoidType()
-    def codegen(self, m, s, b, exp_ty=None):
+    def get_var_type(self, s):
         # Figure out the type
         var_type = None
         if self.declared_type: var_type = self.declared_type.resolve(s)
         else: var_type = self.val.get_type(s)
+        return var_type
+    def codegen(self, m, s, b, exp_ty=None):
+        var_type = self.get_var_type(s)
         val = None
         ## If comptime, just jit the value and get as a python value, for
         ## better comptime inspection
@@ -306,7 +327,7 @@ class AstTypeDeclaration(AstNode):
     def run_all_comptime(self, m, s):
         print ("Unimpl run all comptime on ast type decl")
     def codegen(self, m, s, b, exp_ty=None):
-        s.set(self.name, Var(self.definition.get_type(s)))
+        s.set(self.name, Var(self.definition.get_type(s, name=self.name)))
 
 ## Execute some code if the given condition is true
 class AstConditional(AstNode):
@@ -411,12 +432,13 @@ class AstComptime(AstNode):
         return gen_coercion(b, val, ty, exp_ty)
 
 class AstFnDeclaration(AstNode):
-    def __init__(self, name, template_parameter_decl_list, fn_signature, body, decoration):
+    def __init__(self, name, template_parameter_decl_list, fn_signature, body, is_operator_overload, decoration):
         super().__init__(decoration)
         self.name = name
         self.template_parameter_decl_list = template_parameter_decl_list
         self.fn_signature = fn_signature
         self.body = body
+        self.is_operator_overload = is_operator_overload
         ## A map of name mangles to instantiated functions (unused if template_parameter_decl_list == None or len 0)
         self.instantiated = {}
 
@@ -429,6 +451,20 @@ class AstFnDeclaration(AstNode):
     def get_type(self, s): return VoidType()
 
     def run_all_comptime(self, m, s): pass
+
+    ## Add receiver fields to the given scope 's'
+    def add_receiver_to_scope(self, s, b, receiver_val):
+        ## If we have a receiver, insert the receiver's fields into the scope
+        if self.fn_signature.receiver:
+            for ii, f in enumerate(self.fn_signature.receiver.data.fields):
+                if f.is_function():
+                    s.set(f.field_name, Var(f.field_type))
+                elif s.is_comptime:
+                    s.set(f.field_name, Var(f.field_type, name="self." + f.field_name))
+                else:
+                    ## Create GEP
+                    gep = b.gep(receiver_val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ii)])
+                    s.set(f.field_name, Var(f.field_type, val=gep, name="self." + f.field_name))
 
     def instantiate(self, m, s, type_parameters: List[Type]):
         assert (not self.template_parameter_decl_list and len(type_parameters) == 0) \
@@ -452,14 +488,21 @@ class AstFnDeclaration(AstNode):
         all_args = zip(map(lambda x: x.name if hasattr(x, 'name') else 'self', all_args), internal_fnty.args)
         all_args = list(map(lambda x: (x[0], Var(x[1], name=x[0])), all_args))
 
+
         ## Mangle the func name
-        mangled = mangle_function(self.name, list(map(lambda x: x.val, type_parameters)))
+        mangled = None
+        if self.is_operator_overload:
+            mangled = self.name
+            for a in internal_fnty.args[1:]: mangled += a.mangle()
+        else:
+            mangled = mangle_function(self.name, list(map(lambda x: x.val, type_parameters)))
 
         ## Check if we have an instantiation cached
         if mangled in self.instantiated: return self.instantiated[mangled]
 
         ## Instantiate, so run the comptime stuff for the body in a subscope
-        comptime_subscope = s.subscope()
+        comptime_subscope = s.comptime_subscope()
+        self.add_receiver_to_scope(comptime_subscope, None, None)
         for name,var in all_args: comptime_subscope.set(name,var)
         jit.push_jit_env()
         jit.add_module(m)
@@ -468,19 +511,22 @@ class AstFnDeclaration(AstNode):
 
         fnty = internal_fnty.to_llvm_type()
         ## Create the function
-        fn = ir.Function(m, fnty, name=mangled)
-        ## Add to (parent) scope
-        parent_scope.set(mangled, Var(internal_fnty, fn))
+        fn = ir.Function(m, fnty, name = mangled)
+        ## Add to (parent) scope (if this isn't an op overload)
+        if not self.is_operator_overload: parent_scope.set(mangled, Var(internal_fnty, fn))
+
+        if self.fn_signature.receiver:
+            ## Set implicit receiver on any function calls to 'self'
+            def set_implicit_receiver(x):
+                if isinstance(x, AstFnCall):
+                    x.implicit_receiver = fn.args[0]
+            self.body.walk_dfs(set_implicit_receiver)
+
         entry_block = fn.append_basic_block(name="entry")
         b = ir.IRBuilder(entry_block)
 
-        ## If we have a receiver, insert the receiver's fields into the scope
-        if self.fn_signature.receiver:
-            receiver_val = fn.args[0]
-            for ii, f in enumerate(filter(lambda x: not x.is_function(), self.fn_signature.receiver.data.fields)):
-                ## Create GEP
-                gep = b.gep(receiver_val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ii)])
-                s.set(f.field_name, Var(f.field_type, val=gep, name="self." + f.field_name))
+        ## Add receiver to scope
+        if len(fn.args) > 0: self.add_receiver_to_scope(s, b, fn.args[0])
 
         ## Insert args into the scope, storing as allocas
         ## Map fn arg LLVM values to previous arg list
@@ -493,7 +539,6 @@ class AstFnDeclaration(AstNode):
             s.set(name, var)
             # Set the receiver val if this is the first arg
             if name == 'self': receiver_val = var.val
-
 
         if internal_fnty.return_type.eq(VoidType()):
             self.body.codegen(m, s, b, exp_ty=internal_fnty.return_type)
@@ -564,6 +609,7 @@ class AstFnCall(AstNode):
         self.template_params = template_params
         if self.template_params == None: self.template_params = []
         self.param_list = param_list
+        self.implicit_receiver = None
 
     def walk_dfs(self, fn):
         self.name.walk_dfs(fn)
@@ -643,13 +689,18 @@ class AstFnCall(AstNode):
 
     ## Gets the receiver for this fncall if there is one - otherwise, None
     def get_receiver(self, m, s, b):
-        if not isinstance(self.name, AstQualifiedName): return None
+        if not isinstance(self.name, AstQualifiedName):
+            return self.implicit_receiver
         resolved = self.name.resolve_minus(m, s, b, 1)
         if not resolved: return None
         else:
-            return b.load(resolved.val)
+            val = resolved.val
+            for ii in range(resolved.var_type.num_ptr()):
+                val = b.load(val)
+            return val
 
     def codegen(self, m, s, b, exp_ty=None):
+        print(self.name.parse_node.to_string())
         # Find function
         fn = self.find_function(m, s, b)
         internal_fnty = self.get_internal_fnty(s)
@@ -663,14 +714,14 @@ class AstFnCall(AstNode):
             receiver = self.get_receiver(m, s, b)
             if receiver: args.append(receiver)
             for ii, a in enumerate(self.param_list):
-                args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
+                args.append(a.codegen(m, s, b, exp_ty=internal_fnty.args[ii]))
             # Call the function
             return gen_coercion(b, b.call(fn_instantiation, args), self.get_type(s), exp_ty)
         else: # Just call, no need to instantiate
             # Create args
             args = []
             for ii, a in enumerate(self.param_list):
-                args.append(gen_coercion(b, a.codegen(m, s, b), a.get_type(s), internal_fnty.args[ii]))
+                args.append(a.codegen(m, s, b, exp_ty=internal_fnty.args[ii]))
             # Call the function
             return gen_coercion(b, b.call(fn.val, args), self.get_type(s), exp_ty)
 
@@ -903,7 +954,7 @@ class TypeIdent(Resolveable):
     def run_all_comptime(self, m, s): pass
     ## Return the lang type for this type
     def resolve(self, s) -> Type:
-        assert self.parse_node.is_nterm(NTERM_EXPRESSION) or self.pares_node.is_nterm(NTERM_IDENTIFIER)
+        assert self.parse_node.is_nterm(NTERM_EXPRESSION) or self.parse_node.is_nterm(NTERM_IDENTIFIER)
         if self.parse_node.is_nterm(NTERM_IDENTIFIER):
             return s.lookup(self.parse_node.tok_val[0].tok_val[1]).var_type.val
         if self.parse_node.tok_val[0].is_nterm(NTERM_IDENTIFIER):
@@ -916,7 +967,7 @@ class TypeIdent(Resolveable):
             assert self.parse_node.tok_val[1].tok_val[0].is_nterm(NTERM_IDENTIFIER)
             resolved = s.lookup(self.parse_node.tok_val[1].tok_val[0].tok_val[0].tok_val[1]).var_type.val
             return resolved.ptr()
-        else: assert False, "Unimpl"
+        else: assert False, "Unimpl type ident resolve for " + self.parse_node.to_string()
 
 class VarIdent(Resolveable):
     def run_all_comptime(self, m, s): pass
@@ -931,12 +982,25 @@ class VarIdent(Resolveable):
             if lval:
                 return gen_coercion(b, resolved.val, self.get_type(s), exp_ty)
             else:
-                return gen_coercion(b, b.load(resolved.val, name=self.resolve(s).name), self.get_type(s), exp_ty)
+                ## If this is an rvalue, but we're coercing to a pointer, don't bother load
+                if isinstance(exp_ty, PtrType) and exp_ty.val.eq(self.get_type(s)):
+                    return resolved.val
+                else:
+                    return gen_coercion(b, b.load(resolved.val, name=self.resolve(s).name), self.get_type(s), exp_ty)
 
 class BinaryExpression(AstNode):
     def run_all_comptime(self, m, s):
+        ty = self.lhs.get_type(s)
+        rhs_ty = self.rhs.get_type(s)
         self.lhs.run_all_comptime(m, s)
         self.rhs.run_all_comptime(m, s)
+        if self.op in ty.operator_overloads:
+            ## Select overload based on arg type
+            overloads = ty.operator_overloads[self.op]
+            for overload in overloads:
+                if len(overload.arg_types) == 1 and can_coerce(rhs_ty, overload.arg_types[0]):
+                    overload.fn_declaration.instantiate(m, s, [])
+
     def __init__(self, lhs, op, rhs, decoration):
         super().__init__(decoration)
         self.lhs = lhs
@@ -956,6 +1020,23 @@ class BinaryExpression(AstNode):
     def codegen(self, m, s, b, exp_ty=None):
         ## Switch type, then switch on op
         ty = self.lhs.get_type(s)
+        rhs_ty = self.rhs.get_type(s)
+        if self.op in ty.operator_overloads:
+            overloads = ty.operator_overloads[self.op]
+            fn_declaration = None
+            ## Select overload based on arg type
+            for overload in overloads:
+                if len(overload.arg_types) == 1 and can_coerce(rhs_ty, overload.arg_types[0]):
+                    fn_declaration = overload.fn_declaration
+            if fn_declaration:
+                ## TODO Figure out what to do with template params here - we need
+                ## type inference
+                fn = fn_declaration.instantiate(m, s, [])
+                internal_fnty = fn_declaration.fn_signature.codegen(s)
+                args = []
+                lhs_arg = self.lhs.codegen(m, s, b, exp_ty=internal_fnty.args[0])
+                rhs_arg = self.rhs.codegen(m, s, b, exp_ty=internal_fnty.args[1])
+                return gen_coercion(b, b.call(fn, [lhs_arg, rhs_arg]), internal_fnty.return_type, exp_ty)
         if isinstance(ty, IntType):
             if self.op == "+":
                 return gen_coercion(b, b.add(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)

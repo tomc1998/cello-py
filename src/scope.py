@@ -24,7 +24,7 @@ class Scope:
         self.parent = parent
         ## A map of strings to Vars
         self.symbol_table = {}
-        self.is_comptime = False
+        self.is_comptime = is_comptime
 
     def comptime_subscope(self):
         return Scope(parent=self, is_comptime=True)
@@ -42,14 +42,12 @@ class Scope:
     ## meaning var.val will be a python value (NOT an llvm value). You probably
     ## always want to use lookup(), unless writing an interface to the JIT
     ## where you need exact references into the symbol table.
-    def lookup_exact(self, name, is_comptime=None):
-        if is_comptime == None: is_comptime = self.is_comptime
+    def lookup_exact(self, name):
         local = self.symbol_table.get(name)
-        if is_comptime and not local.is_comptime: return None
         if local == None:
             ## If we can't find the symbol here, look in parents
             if self.parent == None: return None
-            else: return self.parent.lookup_exact(name, is_comptime)
+            else: return self.parent.lookup_exact(name)
         else:
             return local
 
@@ -59,7 +57,7 @@ class Scope:
     ## this function assuming it's not present in the symbol table.
     ## Use lookup_exact for exact symbol table values.
     def lookup(self, name, is_comptime=None):
-        local = self.lookup_exact(name, is_comptime)
+        local = self.lookup_exact(name)
         if not local: return None
         if local.is_comptime and not is_comptime:
             ## If the var is comptime but we're not in a comptime context,

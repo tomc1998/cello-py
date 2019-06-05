@@ -123,7 +123,11 @@ def parse_fn_declaration(l):
         children.append(ParseNode(TERM, l.next(), l.sl()))
     assert_val(l, "fn")
     children.append(ParseNode(TERM, l.next(), l.sl()))
-    children.append(parse_identifier(l))
+    if l.peek() and l.peek()[1] == "operator":
+        children.append(ParseNode(TERM, l.next(), l.sl()))
+        children.append(parse_op(l))
+    else:
+        children.append(parse_identifier(l))
     assert_not_empty(l, "Expected rest of function declaration, got EOF")
     if l.peek()[1] == "<": children.append(parse_template_parameter_decl_list(l))
     children.append(ParseNode(TERM, l.next(), l.sl()))
