@@ -244,6 +244,8 @@ def create_expression(p):
         return VarIdent(p, p.sl)
     elif p.is_nterm(NTERM_BINARY_EXPRESSION):
         return create_binary_expression(p)
+    elif p.is_nterm(NTERM_ASSIGNMENT):
+        return create_assignment(p)
     elif p.is_nterm(NTERM_IF):
         return create_if(p)
     elif p.is_nterm(NTERM_COMPTIME_IF):

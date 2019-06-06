@@ -1,4 +1,5 @@
 from overloads import Overload
+
 from llvmlite import ir
 from typing import List
 from parser import *
@@ -225,7 +226,10 @@ class AstForLoop(AstNode):
         fn(self)
     def run_all_comptime(self, m, s):
         self.iter_expr.run_all_comptime(m, s)
-        self.body.run_all_comptime(m, s)
+        body_subscope = s.subscope()
+        iter_var_type = IntType(64, True)
+        body_subscope.set(self.iter_var_name, Var(iter_var_type))
+        self.body.run_all_comptime(m, body_subscope)
     def codegen(self, m, s, b, exp_ty=None):
         if isinstance(self.iter_expr, AstRange):
             iter_var_type = IntType(64, True)
@@ -419,13 +423,13 @@ class AstComptime(AstNode):
             def fwd_decl_walk_fn(x):
                 if isinstance(x, AstFnCall):
                     ## Fwd decl this function
-                    type_parameters = []
+                    template_parameters = []
                     if x.template_params:
-                        type_parameters = list(map(lambda x: x.get_type(s), x.template_params))
+                        template_parameters = list(map(lambda x: x.get_type(s), x.template_params))
                     internal_fnty = x.get_internal_fnty(s)
                     name = x.name.parse_node.tok_val[0].tok_val[0].tok_val[1]
                     if not internal_fnty.is_extern:
-                        name = mangle_function(name, type_parameters)
+                        name = mangle_function(name, template_parameters)
                     ir.Function(m, internal_fnty.to_llvm_type(), name=name)
             body.walk_dfs(fwd_decl_walk_fn)
 
@@ -511,9 +515,9 @@ class AstFnDeclaration(AstNode):
                     gep = b.gep(receiver_val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), ii)])
                     s.set(f.field_name, Var(f.field_type, val=gep, name="self." + f.field_name))
 
-    def instantiate(self, m, s, type_parameters: List[Type]):
-        assert (not self.template_parameter_decl_list and len(type_parameters) == 0) \
-            or len(type_parameters) == len(self.template_parameter_decl_list)
+    def instantiate(self, m, s, template_parameters):
+        assert (not self.template_parameter_decl_list and len(template_parameters) == 0) \
+            or len(template_parameters) == len(self.template_parameter_decl_list)
         parent_scope = s
         s = s.subscope()
 
@@ -522,7 +526,11 @@ class AstFnDeclaration(AstNode):
         ## on the template params)
         if self.template_parameter_decl_list:
             for i, f in enumerate(self.template_parameter_decl_list):
-                s.set(f.name, Var(type_parameters[i], name=f.name))
+                if isinstance(template_parameters[i], KindType):
+                    s.set(f.name, Var(template_parameters[i], name=f.name, is_comptime=True))
+                else:
+                    ty = f.type_ident.resolve(s)
+                    s.set(f.name, Var(ty, name=f.name, val=template_parameters[i], is_comptime=True))
 
         ## Create the function type
         internal_fnty = self.fn_signature.codegen(s)
@@ -533,14 +541,13 @@ class AstFnDeclaration(AstNode):
         all_args = zip(map(lambda x: x.name if hasattr(x, 'name') else 'self', all_args), internal_fnty.args)
         all_args = list(map(lambda x: (x[0], Var(x[1], name=x[0])), all_args))
 
-
         ## Mangle the func name
         mangled = None
         if self.is_operator_overload:
             mangled = self.name
             for a in internal_fnty.args[1:]: mangled += a.mangle()
         else:
-            mangled = mangle_function(self.name, list(map(lambda x: x.val, type_parameters)))
+            mangled = mangle_function(self.name, list(map(lambda x: x.val if isinstance(x, KindType) else x, template_parameters)))
 
         ## Check if we have an instantiation cached
         if mangled in self.instantiated: return self.instantiated[mangled]
@@ -640,11 +647,23 @@ class AstFnInstantiation(AstNode):
 
     def run_all_comptime(self, m, s): pass
 
+    ## TODO Duplication with AstFnCall
+    def get_concrete_template_params(self, m, s, fn_type):
+        concrete_template_params = []
+        for ii, t in enumerate(self.template_params):
+            t_type = t.get_type(s)
+            if isinstance(t_type, KindType): concrete_template_params.append(t_type)
+            else:
+                # Evaluate this expr at comptime
+                comptime = AstComptime(t, t.decoration)
+                comptime.run_all_comptime(m, s)
+                val = comptime.computed
+                concrete_template_params.append(val)
+        return concrete_template_params
+
     def codegen(self, m, s, b):
         resolved = s.lookup(self.name)
-        template_parameters = []
-        if self.template_params:
-            template_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+        template_parameters = self.get_concrete_template_params(m, s, resolved.var_type)
         resolved.var_type.fn_declaration.instantiate(m, s, template_parameters)
 
 class AstFnCall(AstNode):
@@ -662,6 +681,19 @@ class AstFnCall(AstNode):
         for p in self.param_list: p.walk_dfs(fn)
         fn(self)
 
+    def get_concrete_template_params(self, m, s, fn_type):
+        concrete_template_params = []
+        for ii, t in enumerate(self.template_params):
+            t_type = t.get_type(s)
+            if isinstance(t_type, KindType): concrete_template_params.append(t_type)
+            else:
+                # Evaluate this expr at comptime
+                comptime = AstComptime(t, t.decoration)
+                comptime.run_all_comptime(m, s)
+                val = comptime.computed
+                concrete_template_params.append(val)
+        return concrete_template_params
+
     def run_all_comptime(self, m, s):
         ## Instantiate function now (assuming this isn't a recursive call),
         ## since we need to run the comptime stuff on the called function now -
@@ -677,7 +709,7 @@ class AstFnCall(AstNode):
         if not fn_type: return
         if isinstance(fn_type, UninstantiatedFunction):
             internal_fnty = self.get_internal_fnty(s)
-            concrete_template_params = list(map(lambda x: x.get_type(s), self.template_params))
+            concrete_template_params = self.get_concrete_template_params(m, s, fn_type)
             fn_type.fn_declaration.instantiate(m, s, concrete_template_params)
 
     def find_function_type(self, s):
@@ -686,10 +718,10 @@ class AstFnCall(AstNode):
         resolved = self.name.resolve(s)
         if not resolved:
             ## Try the mangled name
-            type_parameters = []
+            template_parameters = []
             if self.template_params:
-                type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
-            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
+                template_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], template_parameters)
             return s.lookup(mangled).var_type;
         else: return resolved.var_type
 
@@ -701,10 +733,10 @@ class AstFnCall(AstNode):
             resolved = self.name.resolve(s)
         if not resolved:
             ## Try the mangled name
-            type_parameters = []
+            template_parameters = []
             if self.template_params:
-                type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
-            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], type_parameters)
+                template_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+            mangled = mangle_function(self.name.parse_node.tok_val[0].tok_val[0].tok_val[1], template_parameters)
             return s.lookup(mangled);
         else: return resolved
 
@@ -714,14 +746,14 @@ class AstFnCall(AstNode):
             ## Find the type by applying the template parameters
             subscope = s.subscope()
 
-            type_parameters = list(map(lambda x: x.get_type(s), self.template_params))
+            template_parameters = list(map(lambda x: x.get_type(s), self.template_params))
 
             ## First figure out type params and add them all to the scope before
             ## trying to gen the fn signature (since returntype / args might depend
             ## on the template params)
             if resolved_type.fn_declaration.template_parameter_decl_list:
                 for i, f in enumerate(resolved_type.fn_declaration.template_parameter_decl_list):
-                    subscope.set(f.name, Var(type_parameters[i], name=f.name))
+                    subscope.set(f.name, Var(template_parameters[i], name=f.name))
 
             ## Create the function type
             internal_fnty = resolved_type.fn_declaration.fn_signature.codegen(subscope)
@@ -751,7 +783,7 @@ class AstFnCall(AstNode):
         if isinstance(fn.var_type, UninstantiatedFunction):
             ## Instantiate this type first. Figure out type params.
             ## No type inference for now - just codegen it all
-            concrete_template_params = list(map(lambda x: x.get_type(s), self.template_params))
+            concrete_template_params = self.get_concrete_template_params(m, s, fn.var_type)
             fn_instantiation = fn.var_type.fn_declaration.instantiate(m, s, concrete_template_params)
             # Create args
             args = []
@@ -812,10 +844,8 @@ class AstArrayAccess(AstNode):
         ## Get the type of the elements, and gep into the pointer (which should be in resolved.val)
         ty = resolved.var_type.val
         if isinstance(resolved.var_type, SliceType):
-            print(array_ptr)
             val = b.gep(array_ptr, [self.index.codegen(m, s, b)])
         else:
-            print(array_ptr)
             val = b.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), self.index.codegen(m, s, b)])
         if lval: return val
         else: return b.load(val)

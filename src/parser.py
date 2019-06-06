@@ -391,6 +391,8 @@ def parse_expression(l, no_right_angle=False):
         ## As a bonus, don't parse assignment ops here
         elif l.peek()[0] == "op" and not is_assignment_op(l.peek()[1]) and (not no_right_angle or l.peek()[1] != ">"):
             lrec = parse_binary_expression(l, lrec)
+        elif is_assignment_op(l.peek()[1]) and l.peek()[1] != "=":
+            lrec = parse_assignment(l, lrec)
         else: break
         added_lrec = True
 
