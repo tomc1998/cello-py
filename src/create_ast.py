@@ -180,6 +180,8 @@ def create_literal(p):
         return AstIntLit(int(tok[1]), p.sl)
     if tok[0] == "c_string_lit":
         return AstCStringLit(tok[1][2:len(tok[1])-1], p.sl)
+    if tok[0] == "string_lit":
+        return AstStringLit(tok[1][1:len(tok[1])-1], p.sl)
     else:
         assert False, "Unimpl lit type: '" + tok[0] + "'"
 

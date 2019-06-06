@@ -1,5 +1,6 @@
 from overloads import Overload
 
+import string_escape
 from llvmlite import ir
 from typing import List
 from parser import *
@@ -26,6 +27,16 @@ def can_coerce(from_ty, to_ty):
         return True
     else:
         return False
+
+## Create a slice struct value
+def create_slice(b, ty, ptr, start, end):
+    slice_len = b.sub(end, start)
+    slice_ptr = b.gep(ptr, [ir.Constant(ir.IntType(32), 0), start])
+    struct_val = ir.Constant.literal_struct([ir.Constant(ty.ptr().to_llvm_type(), None),
+                                                ir.Constant(ir.IntType(32), 0)])
+    struct_val = b.insert_value(struct_val, slice_ptr, 0)
+    struct_val = b.insert_value(struct_val, slice_len, 1)
+    return struct_val
 
 # Asserts if not possible
 # If to_ty == None, return val
@@ -278,9 +289,6 @@ class AstForLoop(AstNode):
             cond = b.icmp_signed("<", new_iter_var, iter_end)
             b.cbranch(cond, body_block, after_block)
             b.position_at_end(after_block)
-
-
-
         else: assert False, "Unimpl"
 
 class AstStructFnDeclaration(AstNode):
@@ -850,13 +858,7 @@ class AstArrayAccess(AstNode):
         if isinstance(self.index, AstRange):
             start = self.index.codegen_start(m, s, b, IntType(32, True))
             end = self.index.codegen_end(m, s, b, IntType(32, True))
-            slice_len = b.sub(end, start)
-            slice_ptr = b.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), start])
-            struct_val = ir.Constant.literal_struct([ir.Constant(resolved.var_type.val.ptr().to_llvm_type(), None),
-                                                     ir.Constant(ir.IntType(32), 0)])
-            struct_val = b.insert_value(struct_val, slice_ptr, 0)
-            struct_val = b.insert_value(struct_val, slice_len, 1)
-            return struct_val
+            return create_slice(b, resolved.var_type.val, array_ptr, start, end)
         ## Get the type of the elements, and gep into the pointer (which should be in resolved.val)
         ty = resolved.var_type.val
         if isinstance(resolved.var_type, SliceType):
@@ -919,6 +921,24 @@ class AstMake(AstNode):
                 struct_val = b.insert_value(struct_val, val, ix)
             return gen_coercion(b, struct_val, ty, exp_ty)
 
+class AstStringLit(AstNode):
+    def __init__(self, val, decoration):
+        super().__init__(decoration)
+        self.val = val
+        self.internal_ty = SliceType(IntType(8, False))
+    def get_type(self, s): return self.internal_ty
+    def run_all_comptime(self, m, s): pass
+    def codegen(self, m, s, b, exp_ty=None):
+        global_name = mangle_global()
+        escaped = string_escape.escape(self.val)
+        ty = ir.ArrayType(IntType(8, False).to_llvm_type(), len(escaped))
+        global_var = ir.GlobalVariable(m, ty, global_name)
+        const_str = ir.Constant(ty, bytearray(escaped, encoding="utf8"))
+        global_var.initializer = const_str
+        return create_slice(b, self.internal_ty.val, global_var,
+                            ir.Constant(ir.IntType(32), 0),
+                            ir.Constant(ir.IntType(32), len(escaped)))
+
 class AstCStringLit(AstNode):
     def __init__(self, val, decoration):
         super().__init__(decoration)
@@ -928,9 +948,10 @@ class AstCStringLit(AstNode):
     def run_all_comptime(self, m, s): pass
     def codegen(self, m, s, b, exp_ty=None):
         global_name = mangle_global()
-        ty = ir.ArrayType(IntType(8, False).to_llvm_type(), len(self.val))
+        escaped = string_escape.escape(self.val)
+        ty = ir.ArrayType(IntType(8, False).to_llvm_type(), len(escaped))
         global_var = ir.GlobalVariable(m, ty, global_name)
-        const_str = ir.Constant(ty, bytearray(self.val, encoding="utf8"))
+        const_str = ir.Constant(ty, bytearray(escaped, encoding="utf8"))
         global_var.initializer = const_str
         return b.gep(global_var, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
 
@@ -1038,6 +1059,8 @@ class AstQualifiedNameAddition:
                     if ret: ret = ret.var_type
                 assert ret
                 return ret
+            elif isinstance(var_type, SliceType) and self.name == "len":
+                return IntType(32, False)
             elif isinstance(var_type, ArrayType) and self.name == "len":
                 return IntType(64, False)
 

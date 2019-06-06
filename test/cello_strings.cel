@@ -1,0 +1,4 @@
+fn six = () -> i32 {
+  var my_str = "Hello\n"
+  my_str.len
+}
