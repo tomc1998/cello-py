@@ -1063,6 +1063,10 @@ class AstQualifiedNameAddition:
                 return IntType(32, False)
             elif isinstance(var_type, ArrayType) and self.name == "len":
                 return IntType(64, False)
+            elif isinstance(var_type, SliceType) and self.name == "ptr":
+                return var_type.val.ptr()
+            elif isinstance(var_type, ArrayType) and self.name == "ptr":
+                return var_type.val.ptr()
 
     ## APply this name addition to the given Var, returning another var
     def apply(self, m, s, b, curr: Var) -> Var:
@@ -1120,6 +1124,18 @@ class AstQualifiedNameAddition:
                 clone.var_type = IntType(64, False)
                 clone.is_alloca = False
                 clone.val = ir.Constant(ir.IntType(64), curr.var_type.size)
+                return clone
+            elif isinstance(curr.var_type, SliceType) and self.name == "ptr":
+                clone = curr.clone()
+                clone.var_type = curr.var_type.val.ptr()
+                ## gep into the struct, 1st field since it's {ptr, len}
+                clone.val = b.gep(curr.val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
+                return clone
+            elif isinstance(curr.var_type, ArrayType) and self.name == "ptr":
+                clone = curr.clone()
+                clone.var_type = curr.var_type.val.ptr()
+                clone.is_alloca = False
+                clone.val = b.gep(curr.val, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
                 return clone
 
 class AstQualifiedName(AstNode):

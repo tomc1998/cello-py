@@ -3,10 +3,11 @@ fn slice_len = (slice: &i32[]) -> i32 slice.len
 
 fn first_slice_val = (slice: &i32[]) -> i32 slice[0]
 
+fn double = (x: &i32) -> i32 x.* * 2
+
 fn six = () -> i32 {
   var arr = make i32[] {2, 4, 6}
-  arr[1] = 6
-  var slice = arr[0..3]
-  slice[1] = 8
-  arr[1] - 3
+  var slice = arr[1..3]
+  arr[1] = 3
+  double(slice.ptr)
 }
