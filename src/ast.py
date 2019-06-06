@@ -20,6 +20,8 @@ def can_coerce(from_ty, to_ty):
         return True
     if isinstance(from_ty, IntType) and isinstance(to_ty, IntType):
         return True
+    if isinstance(from_ty, IntType) and isinstance(to_ty, BoolType):
+        return True
     if isinstance(from_ty, PtrType) and to_ty.eq(from_ty.val):
         return True
     else:
@@ -40,6 +42,8 @@ def gen_coercion(b, val, from_ty, to_ty):
             else: return b.zext(val, to_ty.to_llvm_type())
         else:
             return b.trunc(val, to_ty.to_llvm_type())
+    if isinstance(from_ty, IntType) and isinstance(to_ty, BoolType):
+        return gen_coercion(b, val, from_ty, IntType(8, False))
     if isinstance(from_ty, PtrType) and to_ty.eq(from_ty.val):
         # Just load here
         return b.load(val)
@@ -88,16 +92,25 @@ class AstComptimeIf(AstNode):
         for cond in self.if_expr.conditions:
             cond.cond.run_all_comptime(m, s)
         ## Eval all conditions
+        self.chosen_body = None
         for cond in self.if_expr.conditions:
             ## Just create an AstComptime
             comptime = AstComptime(cond.cond, cond.decoration)
             comptime.run_all_comptime(m, s)
             val = comptime.computed
+            print(val)
             if bool(val):
                 ## This is true, so just choose this condition body
                 self.chosen_body = cond.body
+        if not self.chosen_body:
+            if self.if_expr.fallback != None:
+                self.chosen_body = self.if_expr.fallback
         ## If one of the branches was true, run comptime on that now
+        ## Some bullshit since we're recursing into comptime stuff here but
+        ## we're holding state on this node which gets overwritten
+        old_chosen_body = self.chosen_body
         if self.chosen_body: self.chosen_body.run_all_comptime(m, s)
+        self.chosen_body = old_chosen_body
 
     def codegen(self, m, s, b, exp_ty=None):
         assert self.chosen_body
@@ -552,6 +565,10 @@ class AstFnDeclaration(AstNode):
         ## Check if we have an instantiation cached
         if mangled in self.instantiated: return self.instantiated[mangled]
 
+        fn_scope_var = Var(internal_fnty, val=UninstantiatedFunction(self))
+        ## Add to (parent) scope (if this isn't an op overload)
+        if not self.is_operator_overload: parent_scope.set(mangled, fn_scope_var)
+
         ## Instantiate, so run the comptime stuff for the body in a subscope
         comptime_subscope = s.comptime_subscope()
         self.add_receiver_to_scope(comptime_subscope, None, None)
@@ -564,8 +581,7 @@ class AstFnDeclaration(AstNode):
         fnty = internal_fnty.to_llvm_type()
         ## Create the function
         fn = ir.Function(m, fnty, name = mangled)
-        ## Add to (parent) scope (if this isn't an op overload)
-        if not self.is_operator_overload: parent_scope.set(mangled, Var(internal_fnty, fn))
+        fn_scope_var.val = fn
 
         if self.fn_signature.receiver:
             ## Set implicit receiver on any function calls to 'self'
@@ -1229,8 +1245,9 @@ class BinaryExpression(AstNode):
             elif self.op == "*":
                 return gen_coercion(b, b.mul(self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "binop(" + ty.name + ")"), self.get_type(s), exp_ty)
             elif self.op == ">" or self.op == "<" or self.op == ">=" or self.op == "<=" or self.op == "==" or self.op == "!=":
-                if ty.is_signed: return gen_coercion(b, b.icmp_signed(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "cmp(" + ty.name + ")"), self.get_type(s), exp_ty)
-                else: return gen_coercion(b, b.icmp_unsigned(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "cmp(" + ty.name + ")"), self.get_type(s), exp_ty)
+                ## Coerce from 32-bit into to 8 bit, since that's our internal rep
+                if ty.is_signed: return gen_coercion(b, b.icmp_signed(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "cmp(" + ty.name + ")"), IntType(1, False), self.get_type(s))
+                else: return gen_coercion(b, b.icmp_unsigned(self.op, self.lhs.codegen(m, s, b), self.rhs.codegen(m, s, b, exp_ty=self.lhs.get_type(s)), "cmp(" + ty.name + ")"), IntType(1, False), self.get_type(s))
             else: raise NotImplementedError("Unimpl op " + self.op + " for type " + ty.name)
         elif isinstance(ty, FloatType):
             if self.op == "+":

@@ -139,8 +139,8 @@ def parse_op(l):
   assert_type(l, "op");
   return ParseNode(NTERM_OP, [ ParseNode(TERM, l.next(), l.sl()) ], l.sl());
 
-def parse_binary_expression(l, lrec=False):
-  return ParseNode(NTERM_BINARY_EXPRESSION, [lrec, parse_op(l), parse_expression(l)], l.sl());
+def parse_binary_expression(l, lrec=None, no_right_angle=False):
+  return ParseNode(NTERM_BINARY_EXPRESSION, [lrec, parse_op(l), parse_expression(l, no_right_angle=no_right_angle)], l.sl());
 
 def parse_statement_list(l):
     children = []
@@ -211,14 +211,14 @@ def parse_literal(l):
         raise ParseError(l.sl(), "Expected literal, got " + l.peek()[1].to_string())
     return ParseNode(NTERM_LITERAL, [ParseNode(TERM, l.next(), l.sl())], l.sl())
 
-def parse_qualified_type(l, lrec=None):
+def parse_qualified_type(l, lrec=None, no_right_angle=False):
     children = [lrec]
     assert_val(l, "::")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     children.append(parse_template_parameter_list(l))
     return ParseNode(NTERM_QUALIFIED_TYPE, children, l.sl())
 
-def parse_function_call(l, lrec=None):
+def parse_function_call(l, lrec=None, no_right_angle=False):
     children = [lrec]
     if l.peek() and l.peek()[1] == "::":
         children.append(ParseNode(TERM, l.next(), l.sl()))
@@ -226,7 +226,7 @@ def parse_function_call(l, lrec=None):
     children.append(parse_parameter_list(l));
     return ParseNode(NTERM_FUNCTION_CALL, children, l.sl())
 
-def parse_qualified_name(l, lrec=None):
+def parse_qualified_name(l, lrec=None, no_right_angle=False):
     children = [lrec]
     while l.peek() and (l.peek()[1] == "::" or l.peek()[1] == ".") and \
           (l.peek(1)[0] == "ident" or l.peek(1)[0] == "int_lit" or l.peek(1)[0] == "op"):
@@ -236,21 +236,21 @@ def parse_qualified_name(l, lrec=None):
         else: children.append(parse_op(l))
     return ParseNode(NTERM_QUALIFIED_NAME, children, l.sl())
 
-def parse_assignment(l, lrec=None):
+def parse_assignment(l, lrec=None, no_right_angle=False):
     children = [ lrec ]
     children.append(ParseNode(TERM, l.next(), l.sl()))
-    children.append(parse_expression(l))
+    children.append(parse_expression(l, no_right_angle=no_right_angle))
     return ParseNode(NTERM_ASSIGNMENT, children, l.sl())
 
 def parse_comptime(l):
     assert_val(l, "comptime")
     return ParseNode(NTERM_COMPTIME, [ ParseNode(TERM, l.next(), l.sl()), parse_statement_list(l) ], l.sl())
 
-def parse_range(l, lrec=None):
+def parse_range(l, lrec=None, no_right_angle=False):
     children = [ lrec ]
     assert_val(l, "..")
     children.append(ParseNode(TERM, l.next(), l.sl()))
-    children.append(parse_expression(l))
+    children.append(parse_expression(l, no_right_angle=no_right_angle))
     return ParseNode(NTERM_RANGE, children, l.sl())
 
 def parse_for_loop(l):
@@ -293,7 +293,7 @@ def parse_comptime_if(l):
     children.append(parse_if(l))
     return ParseNode(NTERM_COMPTIME_IF, children, l.sl())
 
-def parse_empty_array_access(l, lrec=None):
+def parse_empty_array_access(l, lrec=None, no_right_angle=False):
     children = [lrec]
     assert_val(l, "[")
     children.append(ParseNode(TERM, l.next(), l.sl()))
@@ -301,11 +301,11 @@ def parse_empty_array_access(l, lrec=None):
     children.append(ParseNode(TERM, l.next(), l.sl()))
     return ParseNode(NTERM_EMPTY_ARRAY_ACCESS, children, l.sl())
 
-def parse_array_access(l, lrec=None):
+def parse_array_access(l, lrec=None, no_right_angle=False):
     children = [lrec]
     assert_val(l, "[")
     children.append(ParseNode(TERM, l.next(), l.sl()))
-    children.append(parse_expression(l))
+    children.append(parse_expression(l, no_right_angle=no_right_angle))
     assert_val(l, "]")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     return ParseNode(NTERM_ARRAY_ACCESS, children, l.sl())
@@ -331,7 +331,7 @@ def parse_expression(l, no_right_angle=False):
     if l.peek()[1] == "{": ## StatementList
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_statement_list(l) ], l.sl())
     elif l.peek()[1] == "(":
-        children = [ParseNode(TERM, l.next(), l.sl()), parse_expression(l)]
+        children = [ParseNode(TERM, l.next(), l.sl()), parse_expression(l, no_right_angle=no_right_angle)]
         assert_val(l, ")")
         children.append(ParseNode(TERM, l.next(), l.sl()))
         lrec = ParseNode(NTERM_EXPRESSION, children, l.sl())
@@ -345,7 +345,7 @@ def parse_expression(l, no_right_angle=False):
     elif l.peek()[1] == "$":
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_meta_type_ident(l) ], l.sl())
     elif l.peek()[0] == "op":
-        lrec = ParseNode(NTERM_EXPRESSION, [ parse_op(l), parse_expression(l) ], l.sl())
+        lrec = ParseNode(NTERM_EXPRESSION, [ parse_op(l), parse_expression(l, no_right_angle=no_right_angle) ], l.sl())
     elif l.peek()[1] == "fn":
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_fn_type(l) ], l.sl())
     elif l.peek()[1] == "lambda":
@@ -375,24 +375,24 @@ def parse_expression(l, no_right_angle=False):
                 and (l.peek(1)[0] == "ident" or
                      l.peek(1)[0] == "int_lit" or
                      l.peek(1)[1] == "*")):
-            lrec = parse_qualified_name(l, lrec)
+            lrec = parse_qualified_name(l, lrec, no_right_angle)
         elif l.peek()[1] == "(":
-            lrec = parse_function_call(l, lrec)
+            lrec = parse_function_call(l, lrec, no_right_angle)
         elif l.peek()[1] == "::" and l.peek(1) and l.peek(1)[1] == "<":
-            lrec = parse_qualified_type(l, lrec)
+            lrec = parse_qualified_type(l, lrec, no_right_angle)
         elif l.peek()[1] == "[":
             if l.peek(1) and l.peek(1)[1] == "]":
-                lrec = parse_empty_array_access(l, lrec)
+                lrec = parse_empty_array_access(l, lrec, no_right_angle)
             else:
-                lrec = parse_array_access(l, lrec)
+                lrec = parse_array_access(l, lrec, no_right_angle)
         elif l.peek()[1] == "..":
-            lrec = parse_range(l, lrec)
+            lrec = parse_range(l, lrec, no_right_angle)
         ## Check if this is a binary op, but also if no_right_angle is set, check it's not a ">".
         ## As a bonus, don't parse assignment ops here
         elif l.peek()[0] == "op" and not is_assignment_op(l.peek()[1]) and (not no_right_angle or l.peek()[1] != ">"):
-            lrec = parse_binary_expression(l, lrec)
+            lrec = parse_binary_expression(l, lrec, no_right_angle)
         elif is_assignment_op(l.peek()[1]) and l.peek()[1] != "=":
-            lrec = parse_assignment(l, lrec)
+            lrec = parse_assignment(l, lrec, no_right_angle)
         else: break
         added_lrec = True
 

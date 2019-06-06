@@ -1,0 +1,7 @@
+fn factorial<n: i32> = () -> i32 {
+  comptime if n == 0 { 1 }
+  elif n == 1 { 1 }
+  else { n * factorial::<n-1>() }
+}
+
+instantiate factorial<5>

@@ -67,9 +67,14 @@ def jit_node(n, scope, gen_preamble_fn=None, post_jit_fn=None):
     fn = ir.Function(m, fnty, name="__jit_entry")
     entry_block = fn.append_basic_block(name="entry")
     b = ir.IRBuilder(entry_block)
-    ret_val = n.codegen(m, scope, b)
-    if isinstance(internal_ret_ty, VoidType): b.ret_void()
-    else: b.ret(ret_val)
+    if isinstance(internal_ret_ty, VoidType):
+        n.codegen(m, scope, b)
+        b.ret_void()
+    else:
+        ret_val = n.codegen(m, scope, b, exp_ty=internal_ret_ty)
+        b.ret(ret_val)
+
+    print(m)
 
     ## Create binding module
     binding_module = llvm.parse_assembly(str(m))
