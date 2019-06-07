@@ -266,11 +266,17 @@ def create_expression(p):
         return create_range(p)
     elif p.is_nterm(NTERM_MAKE_EXPRESSION):
         return create_make_expression(p)
+    elif p.is_nterm(NTERM_SIZEOF):
+        return create_sizeof(p)
     elif p.is_nterm(NTERM_ARRAY_ACCESS):
         return create_array_access(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 
+def create_sizeof(p):
+    assert p.is_nterm(NTERM_SIZEOF)
+    expr = create_expression(p.tok_val[2])
+    return AstSizeof(expr, p.sl)
 
 def create_template_parameter_decl_list(p):
     assert p.is_nterm(NTERM_TEMPLATE_PARAMETER_DECL_LIST)

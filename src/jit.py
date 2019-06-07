@@ -1,4 +1,5 @@
 from ctypes import CFUNCTYPE
+import globals
 import llvmlite.binding as llvm
 import glob
 from llvmlite import ir
@@ -7,23 +8,21 @@ import jit_result
 
 ## LLVM JIT engine
 jit = None
-target_machine = None
 env_stack = [[]]
 
 ## Call this at the start of compilation
 def init_jit(libc_path):
-    global jit, target_machine
+    global jit
     """
     Create an ExecutionEngine suitable for JIT code generation on
     the host CPU.  The engine is reusable for an arbitrary number of
     modules.
     """
     # Create a target machine representing the host
-    target = llvm.Target.from_default_triple()
-    target_machine = target.create_target_machine()
+    target_machine = globals.target_machine
     # And an execution engine with an empty backing module
     backing_mod = llvm.parse_assembly("")
-    jit = llvm.create_mcjit_compiler(backing_mod, target_machine)
+    jit = llvm.create_mcjit_compiler(backing_mod, globals.target_machine)
 
     # Add libc
     llvm.load_library_permanently(libc_path)

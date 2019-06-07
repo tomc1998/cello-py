@@ -1,0 +1,7 @@
+type Foo = struct {
+  a: i32,
+  b: i32,
+  c: u8
+}
+
+fn foo_size = () -> u64 sizeof(Foo)

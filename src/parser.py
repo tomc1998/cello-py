@@ -44,6 +44,7 @@ NTERM_ARRAY_ACCESS = 'ARRAY_ACCESS'
 NTERM_EMPTY_ARRAY_ACCESS = 'EMPTY_ARRAY_ACCESS'
 NTERM_RANGE = 'RANGE'
 NTERM_ASSIGNMENT = 'ASSIGNMENT'
+NTERM_SIZEOF = 'SIZEOF'
 
 ## Parse node.
 ## tok_type = parser.NTERM_* value or parser.TERM
@@ -141,6 +142,17 @@ def parse_op(l):
 
 def parse_binary_expression(l, lrec=None, no_right_angle=False):
   return ParseNode(NTERM_BINARY_EXPRESSION, [lrec, parse_op(l), parse_expression(l, no_right_angle=no_right_angle)], l.sl());
+
+def parse_sizeof(l):
+    children = []
+    assert_val(l, "sizeof")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    assert_val(l, "(")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    children.append(parse_expression(l))
+    assert_val(l, ")")
+    children.append(ParseNode(TERM, l.next(), l.sl()))
+    return ParseNode(NTERM_SIZEOF, children, l.sl())
 
 def parse_statement_list(l):
     children = []
@@ -354,6 +366,8 @@ def parse_expression(l, no_right_angle=False):
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_if(l) ], l.sl())
     elif l.peek()[1] == "make":
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_make_expression(l) ], l.sl())
+    elif l.peek()[1] == "sizeof":
+        lrec = ParseNode(NTERM_EXPRESSION, [ parse_sizeof(l) ], l.sl())
     elif l.peek()[0] == "int_lit" or l.peek()[0] == "float_lit" or l.peek()[0] == "string_lit" or l.peek()[0] == "c_string_lit":
         ## Literal
         lrec = ParseNode(NTERM_EXPRESSION, [ parse_literal(l) ], l.sl())
@@ -564,7 +578,6 @@ def parse_make_expression(l):
     assert_val(l, "}")
     children.append(ParseNode(TERM, l.next(), l.sl()))
     return ParseNode(NTERM_MAKE_EXPRESSION, children, l.sl())
-
 
 def parse_statement(l):
     assert_not_empty(l, "Expected statement, got EOF")

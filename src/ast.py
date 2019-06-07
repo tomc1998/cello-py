@@ -1,6 +1,7 @@
 from overloads import Overload
 
 import string_escape
+import globals
 from llvmlite import ir
 from typing import List
 from parser import *
@@ -689,6 +690,24 @@ class AstFnInstantiation(AstNode):
         resolved = s.lookup(self.name)
         template_parameters = self.get_concrete_template_params(m, s, resolved.var_type)
         resolved.var_type.fn_declaration.instantiate(m, s, template_parameters)
+
+class AstSizeof(AstNode):
+    def __init__(self, expr, decoration):
+        super().__init__(decoration)
+        self.expr = expr
+    def get_type(self, s):
+        return IntType(64, False)
+    def run_all_comptime(self, m, s):
+        self.expr.run_all_comptime(m, s)
+    def walk_dfs(self, fn):
+        self.expr.walk_dfs(fn)
+        fn(self)
+    def codegen(self, m, s, b, exp_ty=None):
+        if exp_ty == None: exp_ty = self.get_type(s)
+        expr_type = self.expr.get_type(s)
+        while isinstance(expr_type, KindType): expr_type = expr_type.val
+        val = expr_type.to_llvm_type().get_abi_size(globals.target_machine.target_data)
+        return ir.Constant(exp_ty.to_llvm_type(), val)
 
 class AstFnCall(AstNode):
     def __init__(self, name, template_params, param_list, decoration):

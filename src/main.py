@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import globals
 from time import time
 import sys
 import llvmlite
@@ -22,6 +23,8 @@ args = arg_parser.parse_args()
 llvmlite.binding.initialize()
 llvmlite.binding.initialize_native_target()
 llvmlite.binding.initialize_native_asmprinter()
+target = llvmlite.binding.Target.from_default_triple()
+globals.target_machine = target.create_target_machine()
 jit.init_jit(args.libc)
 
 ## Open the file
@@ -48,16 +51,12 @@ try:
 
     # Create final obj file with the module
 
-    # Get the target
-    target = llvmlite.binding.Target.from_default_triple()
-    target_machine = target.create_target_machine()
-
     # Create the module
     binding_module = llvmlite.binding.parse_assembly(str(module))
     binding_module.verify()
 
     # Emit the obj to some buffer
-    obj = target_machine.emit_object(binding_module)
+    obj = globals.target_machine.emit_object(binding_module)
 
     end = time()
 

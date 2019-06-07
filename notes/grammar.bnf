@@ -18,6 +18,7 @@ Statement ::= VarDeclaration
   | Assignment
 
 Expression ::= "(" Expression ")"
+  | SizeOf
   | StatementList
   | Comptime
   | Literal
@@ -115,6 +116,7 @@ BinaryOp ::= Any op apart from assignment ops, see separate Assignment nterm
 Assignment ::= Expression AssignmentOp Expression
 
 FunctionCall ::= Expression  ParameterList
+SizeOf ::= "sizeof" "(" Expression ")"
 ArrayAccess ::= Expression "[" Expression "]"
 
 // Like ArrayAccess but empty, e.g. int[]
