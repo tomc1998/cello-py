@@ -240,6 +240,12 @@ def create_array_access(p):
     index = create_expression(p.tok_val[2])
     return AstArrayAccess(base, index, p.sl)
 
+def create_rcast(p):
+    assert p.is_nterm(NTERM_RCAST)
+    to_val = create_type_ident(p.tok_val[2])
+    from_val = create_expression(p.tok_val[5])
+    return AstRcast(from_val, to_val, p.sl)
+
 def create_expression(p):
     while p.is_nterm(NTERM_EXPRESSION): p = p.tok_val[0]
     if p.is_nterm(NTERM_IDENTIFIER):
@@ -270,6 +276,8 @@ def create_expression(p):
         return create_sizeof(p)
     elif p.is_nterm(NTERM_ARRAY_ACCESS):
         return create_array_access(p)
+    elif p.is_nterm(NTERM_RCAST):
+        return create_rcast(p)
     else:
         assert False, "Unimpl creating expr from " + p.tok_type
 

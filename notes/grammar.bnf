@@ -19,6 +19,7 @@ Statement ::= VarDeclaration
 
 Expression ::= "(" Expression ")"
   | SizeOf
+  | Rcast
   | StatementList
   | Comptime
   | Literal
@@ -117,6 +118,8 @@ Assignment ::= Expression AssignmentOp Expression
 
 FunctionCall ::= Expression  ParameterList
 SizeOf ::= "sizeof" "(" Expression ")"
+// Reinterpret cast
+Rcast ::= "rcast" "<" Expression ">" "(" Expression ")"
 ArrayAccess ::= Expression "[" Expression "]"
 
 // Like ArrayAccess but empty, e.g. int[]

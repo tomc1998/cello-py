@@ -709,6 +709,24 @@ class AstSizeof(AstNode):
         val = expr_type.to_llvm_type().get_abi_size(globals.target_machine.target_data)
         return ir.Constant(exp_ty.to_llvm_type(), val)
 
+class AstRcast(AstNode):
+    def __init__(self, from_val, to_val, decoration):
+        super().__init__(decoration)
+        self.from_val = from_val
+        self.to_val = to_val
+    def get_type(self, s):
+        return self.to_val.resolve(s)
+    def run_all_comptime(self, m, s):
+        self.to_val.run_all_comptime(m, s)
+        self.from_val.run_all_comptime(m, s)
+    def walk_dfs(self, fn):
+        self.to_val.walk_dfs(fn)
+        self.from_val.walk_dfs(fn)
+        fn(self)
+    def codegen(self, m, s, b, exp_ty=None):
+        to_ty = self.get_type(s)
+        return gen_coercion(b, b.bitcast(self.from_val.codegen(m, s, b), to_ty.to_llvm_type()), to_ty, exp_ty)
+
 class AstFnCall(AstNode):
     def __init__(self, name, template_params, param_list, decoration):
         super().__init__(decoration)

@@ -1,7 +1,14 @@
 #include <stdio.h>
 
-int six();
+struct Foo {
+  int a;
+  int b;
+};
+
+int extract_a(struct Foo*);
 
 int main(int argc, char** argv) {
-  printf("Exp 6: %d\n", six());
+  struct Foo foo;
+  foo.a = 6;
+  printf("Exp 6: %d\n", extract_a(&foo));
 }

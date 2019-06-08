@@ -1,0 +1,9 @@
+type Foo = struct {
+  a: i32,
+  b: i32
+}
+
+fn extract_a = (foo: &u8) -> i32 {
+  var foo_ptr = rcast<&Foo>(foo)
+  foo_ptr.a
+}
